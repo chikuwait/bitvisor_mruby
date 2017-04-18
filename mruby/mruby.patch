@@ -1,0 +1,258 @@
+diff -urN a/build_config.rb b/build_config.rb
+--- a/build_config.rb	2015-02-10 13:00:31.492171666 +0900
++++ b/build_config.rb	2015-02-10 12:52:34.712938550 +0900
+@@ -122,3 +122,13 @@
+ #   conf.test_runner.command = 'env'
+ #
+ # end
++MRuby::CrossBuild.new('kernel') do |conf|
++   toolchain :gcc
++
++#   conf.cc.flags << "-I/lib/modules/" + `uname -r`.chop + "/build/include"
++   conf.cc.flags << "-Iinclude/kernel -mcmodel=kernel -mno-red-zone -mfpmath=387 -mno-sse -mno-sse2 -mno-mmx -mno-3dnow -msoft-float -fno-asynchronous-unwind-tables -fno-omit-frame-pointer"
++   conf.cc.defines << %w(DISABLE_STDIO)
++   conf.cc.defines << %w(DISABLE_FLOAT)
++   conf.cc.defines << %w(MRB_INT64)
++   conf.bins = []
++end
+diff -urN a/include/kernel/ctype.h b/include/kernel/ctype.h
+--- a/include/kernel/ctype.h	1970-01-01 09:00:00.000000000 +0900
++++ b/include/kernel/ctype.h	2015-02-10 12:52:34.712938550 +0900
+@@ -0,0 +1,13 @@
++#if 0
++#include <linux/ctype.h>
++#endif
++#define isalnum(c) (isalpha(c) || isdigit(c))
++#define isalpha(c) (isupper(c) || islower(c))
++#define isupper(c) ('A' <= (c) && (c) <= 'Z')
++#define islower(c) ('a' <= (c) && (c) <= 'z')
++#define isdigit(c) ('0' <= (c) && (c) <= '9')
++#define toupper(c) (isalpha(c) ? (c) & ~0x20 : (c))
++#define tolower(c) (isalpha(c) ? (c) |  0x20 : (c))
++#define isspace(c) ((c) == 0x20) | (0x09 <= (c) && (c) <= 0x0d)
++#define isprint(c) (0x20 <= (c) && (c) <= 0x7e)
++#define isxdigit(c) (isdigit(c) || ('a' <= (c) && (c) <= 'f') || ('A' <= (c) && (c) <= 'F'))
+diff -urN a/include/kernel/math.h b/include/kernel/math.h
+--- a/include/kernel/math.h	1970-01-01 09:00:00.000000000 +0900
++++ b/include/kernel/math.h	2015-02-10 12:52:34.712938550 +0900
+@@ -0,0 +1,11 @@
++# define fmod(x,y) (x)
++# define pow(x,y) (x)
++# define log10(x) (x)
++# define floor(x) (x)
++# define ceil(x) (x)
++# define isinf(x) 0
++# define isnan(x) 0
++# define isfinite(x) 0
++# define signbit(x) 0
++# define INFINITY LONG_MAX
++# define NAN (-1)
+diff -urN a/include/kernel/setjmp.h b/include/kernel/setjmp.h
+--- a/include/kernel/setjmp.h	1970-01-01 09:00:00.000000000 +0900
++++ b/include/kernel/setjmp.h	2015-02-10 12:56:30.944080997 +0900
+@@ -0,0 +1,3 @@
++typedef int jmp_buf[6];
++#define setjmp(env) __builtin_setjmp(env)
++#define longjmp(env, val) __builtin_longjmp(env, val)
+diff -urN a/include/kernel/stdarg.h b/include/kernel/stdarg.h
+--- a/include/kernel/stdarg.h	1970-01-01 09:00:00.000000000 +0900
++++ b/include/kernel/stdarg.h	2015-02-10 12:52:34.712938550 +0900
+@@ -0,0 +1,7 @@
++typedef unsigned long size_t;
++typedef __builtin_va_list __gnuc_va_list;
++typedef __gnuc_va_list va_list;
++#define va_start(v,l) __builtin_va_start(v,l)
++#define va_end(v)     __builtin_va_end(v)
++#define va_arg(v,l)   __builtin_va_arg(v,l)
++int vsnprintf(char *str, size_t size, const char *format, va_list ap);
+diff -urN a/include/kernel/stdlib.h b/include/kernel/stdlib.h
+--- a/include/kernel/stdlib.h	1970-01-01 09:00:00.000000000 +0900
++++ b/include/kernel/stdlib.h	2015-02-10 12:52:34.712938550 +0900
+@@ -0,0 +1,12 @@
++typedef unsigned long size_t;
++void free(void *ptr);
++void *realloc(void *ptr, size_t size);
++int abs(int j);
++unsigned long int strtol(const char *nptr, char **endptr, int base);
++unsigned long int strtoul(const char *nptr, char **endptr, int base);
++void exit(int status);
++#define EXIT_SUCCESS 0
++#define EXIT_FAILURE (-1)
++void abort(void);
++int atoi(const char *nptr);
++# define strtod(p,e) strtol(p,e,10)
+diff -urN a/include/mruby/value.h b/include/mruby/value.h
+--- a/include/mruby/value.h	2015-02-10 13:00:31.497171627 +0900
++++ b/include/mruby/value.h	2015-02-10 12:52:34.712938550 +0900
+@@ -32,7 +32,13 @@
+ # define MRB_INT_MAX (INT32_MAX>>MRB_FIXNUM_SHIFT)
+ #endif
+ 
+-#ifdef MRB_USE_FLOAT
++#if defined(DISABLE_FLOAT)
++  typedef long mrb_float;
++# define double long
++int sprintf(char *str, const char *format, ...);
++# define mrb_float_to_str(buf, i) sprintf(buf, "%d", i)
++# define str_to_mrb_float(buf) strtol(buf, NULL, 10)
++#elif defined(MRB_USE_FLOAT)
+   typedef float mrb_float;
+ # define mrb_float_to_str(buf, i) sprintf(buf, "%.7e", i)
+ # define str_to_mrb_float(buf) strtof(buf, NULL)
+diff -urN a/include/mruby.h b/include/mruby.h
+--- a/include/mruby.h	2015-02-10 13:00:31.495171642 +0900
++++ b/include/mruby.h	2015-02-10 12:52:34.713938542 +0900
+@@ -188,7 +188,7 @@
+   mrb_int atexit_stack_len;
+ } mrb_state;
+ 
+-#if __STDC_VERSION__ >= 201112L
++#if defined(__STDC_VERSION__) && __STDC_VERSION__ >= 201112L
+ # define mrb_noreturn _Noreturn
+ #elif defined __GNUC__ && !defined __STRICT_ANSI__
+ # define mrb_noreturn __attribute__((noreturn))
+@@ -451,7 +451,7 @@
+ #define mrb_assert_int_fit(t1,n,t2,max) ((void)0)
+ #endif
+ 
+-#if __STDC_VERSION__ >= 201112L
++#if defined(__STDC_VERSION__) && __STDC_VERSION__ >= 201112L
+ #define mrb_static_assert(exp, str) _Static_assert(exp, str)
+ #else
+ #define mrb_static_assert(exp, str) mrb_assert(exp)
+diff -urN a/src/gc.c b/src/gc.c
+--- a/src/gc.c	2015-02-10 13:00:31.508171539 +0900
++++ b/src/gc.c	2015-02-10 12:52:34.713938542 +0900
+@@ -378,7 +378,7 @@
+ #else
+   if (mrb->arena_idx >= mrb->arena_capa) {
+     /* extend arena */
+-    mrb->arena_capa = (int)(mrb->arena_capa * 1.5);
++      mrb->arena_capa = (int)(mrb->arena_capa * 3 / 2);
+     mrb->arena = (struct RBasic**)mrb_realloc(mrb, mrb->arena, sizeof(struct RBasic*)*mrb->arena_capa);
+   }
+ #endif
+@@ -1073,7 +1073,7 @@
+   int capa = mrb->arena_capa;
+ 
+   if (idx < capa / 2) {
+-    capa = (int)(capa * 0.66);
++    capa = (int)(capa * 2 / 3);
+     if (capa < MRB_GC_ARENA_SIZE) {
+       capa = MRB_GC_ARENA_SIZE;
+     }
+diff -urN a/src/numeric.c b/src/numeric.c
+--- a/src/numeric.c	2015-02-10 13:00:31.509171531 +0900
++++ b/src/numeric.c	2015-02-10 12:52:34.713938542 +0900
+@@ -138,8 +138,8 @@
+       *(c++) = '-';
+     }
+ 
+-    if (n != 0.0) {
+-      if (n > 1.0) {
++    if (n != (mrb_float)0.0) {
++      if (n > (mrb_float)1.0) {
+         exp = (int)floor(log10(n));
+       }
+       else {
+@@ -156,7 +156,7 @@
+       double f = n;
+       double fd = 0;
+       for (i = 0; i < FLO_MAX_DIGITS; ++i) {
+-        f = (f - fd) * 10.0;
++        f = (f - fd) * (mrb_float)10.0;
+         fd = floor(f + FLO_EPSILON);
+         if (fd != 0) {
+           if (beg < 0) beg = i;
+@@ -170,7 +170,7 @@
+     if (abs(exp) + length >= FLO_MAX_DIGITS) {
+       /* exponent representation */
+       e = TRUE;
+-      n = n / pow(10.0, exp);
++      n = n / pow((mrb_float)10.0, exp);
+       if (isinf(n)) {
+         if (s < c) {            /* s[0] == '-' */
+           return mrb_str_new_lit(mrb, "-0.0");
+@@ -190,7 +190,7 @@
+     /* puts digits */
+     while (max_digits >= 0) {
+       double weight = (m < 0) ? 0.0 : pow(10.0, m);
+-      double fdigit = (m < 0) ? n * 10.0 : n / weight;
++      double fdigit = (m < 0) ? n * (mrb_float)10.0 : n / weight;
+ 
+       if (fdigit < 0) fdigit = n = 0;
+       if (m < -1 && fdigit < FLO_EPSILON) {
+@@ -200,12 +200,12 @@
+       }
+       digit = (int)floor(fdigit + FLO_EPSILON);
+       if (m == 0 && digit > 9) {
+-        n /= 10.0;
++        n /= (mrb_float)10.0;
+         exp++;
+         continue;
+       }
+       *(c++) = '0' + digit;
+-      n = (m < 0) ? n * 10.0 - digit : n - (digit * weight);
++      n = (m < 0) ? n * (mrb_float)10.0 - digit : n - (digit * weight);
+       max_digits--;
+       if (m-- == 0) {
+         *(c++) = '.';
+@@ -302,7 +302,7 @@
+   mrb_float div;
+   mrb_float mod;
+ 
+-  if (y == 0.0) {
++  if (y == (mrb_float)0.0) {
+     div = INFINITY;
+     mod = NAN;
+   }
+@@ -314,7 +314,7 @@
+       div = (x - mod) / y;
+     if (y*mod < 0) {
+       mod += y;
+-      div -= 1.0;
++      div -= (mrb_float)1.0;
+     }
+   }
+ 
+@@ -424,7 +424,7 @@
+ 
+   d = (mrb_float)mrb_fixnum(num);
+   /* normalize -0.0 to 0.0 */
+-  if (d == 0) d = 0.0;
++  if (d == 0) d = (mrb_float)0.0;
+   c = (char*)&d;
+   for (hash=0, i=0; i<sizeof(mrb_float);i++) {
+     hash = (hash * 971) ^ (unsigned char)c[i];
+@@ -590,7 +590,7 @@
+   f = 1.0;
+   i = abs(ndigits);
+   while  (--i >= 0)
+-    f = f*10.0;
++    f = f*(mrb_float)10.0;
+ 
+   if (isinf(f)) {
+     if (ndigits < 0) number = 0;
+@@ -638,8 +638,8 @@
+ {
+   mrb_float f = mrb_float(num);
+ 
+-  if (f > 0.0) f = floor(f);
+-  if (f < 0.0) f = ceil(f);
++  if (f > (mrb_float)0.0) f = floor(f);
++  if (f < (mrb_float)0.0) f = ceil(f);
+ 
+   if (!FIXABLE(f)) {
+     return mrb_float_value(mrb, f);
+diff -urN a/src/symbol.c b/src/symbol.c
+--- a/src/symbol.c	2015-02-10 13:00:31.511171515 +0900
++++ b/src/symbol.c	2015-02-10 12:52:34.713938542 +0900
+@@ -68,7 +68,7 @@
+   sym = ++mrb->symidx;
+   if (mrb->symcapa < sym) {
+     if (mrb->symcapa == 0) mrb->symcapa = 100;
+-    else mrb->symcapa = (size_t)(mrb->symcapa * 1.2);
++    else mrb->symcapa = (size_t)(mrb->symcapa * 6 / 5);
+     mrb->symtbl = (symbol_name*)mrb_realloc(mrb, mrb->symtbl, sizeof(symbol_name)*(mrb->symcapa+1));
+   }
+   sname = &mrb->symtbl[sym];
