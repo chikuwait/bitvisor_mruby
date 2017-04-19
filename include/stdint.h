@@ -36,3 +36,6 @@ typedef long long          int64_t;
 typedef int                int32_t;
 typedef short              int16_t;
 typedef char               int8_t;
+#define INT64_MAX 0x7ffffffffffffffff
+#define INT64_MIN -0x7fffffffffffffff - 1
+
