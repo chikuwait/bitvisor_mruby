@@ -29,4 +29,5 @@
 
 #define EXIT_FAILURE    1
 #define EXIT_SUCCESS    0
-extern void abort(void) __THROW__attribute__ ((___noreturn__));
+extern void abort(void) __THROW __attribute__ ((___noreturn__));
+
