@@ -49,3 +49,14 @@ typedef char               int8_t;
 #  endif
 #endif
 
+
+#if __WORDSIZE == 64
+#  define __INT64_C(c)  c
+#  define __UINT64_C(c) c 
+#else
+#  define __INT64_C(c)  c
+#  define __UINT64_C(c) c
+#endif
+
+#define UINT16_MAX  (65535)
+#define UINT64_MAX ( __UINT64_C(18446744073709551615))
