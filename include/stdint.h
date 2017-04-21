@@ -36,6 +36,11 @@ typedef long long          int64_t;
 typedef int                int32_t;
 typedef short              int16_t;
 typedef char               int8_t;
+
+typedef long int intptr_t;
+typedef unsigned long int uintptr_t;
+
+
 #define INT64_MAX 0x7ffffffffffffffff
 #define INT64_MIN -0x7fffffffffffffff - 1
 
@@ -49,7 +54,6 @@ typedef char               int8_t;
 #  endif
 #endif
 
-
 #if __WORDSIZE == 64
 #  define __INT64_C(c)  c
 #  define __UINT64_C(c) c 
@@ -57,6 +61,7 @@ typedef char               int8_t;
 #  define __INT64_C(c)  c
 #  define __UINT64_C(c) c
 #endif
+
 
 #define UINT16_MAX  (65535)
 #define UINT64_MAX ( __UINT64_C(18446744073709551615))
