@@ -93,7 +93,7 @@ strlen_slow (char const *p)
 		len++;
 	return len;
 }
-static inline void
+static inline void *
 memcher_slow(const void *ptr, inc ch, size_t count)
 {
     char const *p = ptr;
