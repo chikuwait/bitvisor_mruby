@@ -46,9 +46,10 @@ memset_slow (void *addr, int val, int len)
 }
 
 static inline void *
-memcpy_slow (void *dest, void *src, int len)
+memcpy_slow (void *dest, void const *src, int len)
 {
-	char *p, *q;
+	char *p;
+    char const *q;
 
 	p = dest;
 	q = src;
@@ -58,7 +59,7 @@ memcpy_slow (void *dest, void *src, int len)
 }
 
 static inline int
-strcmp_slow (char *s1, char *s2)
+strcmp_slow (char const *s1, char const *s2)
 {
 	int r, c1, c2;
 
@@ -71,7 +72,7 @@ strcmp_slow (char *s1, char *s2)
 }
 
 static inline int
-memcmp_slow (void *p1, void *p2, int len)
+memcmp_slow (void const *p1, void const *p2, int len)
 {
 	int r, i;
 	char *q1, *q2;
@@ -84,7 +85,7 @@ memcmp_slow (void *p1, void *p2, int len)
 }
 
 static inline int
-strlen_slow (char *p)
+strlen_slow (char const *p)
 {
 	int len = 0;
 
