@@ -94,7 +94,7 @@ strlen_slow (char const *p)
 	return len;
 }
 static inline void *
-memcher_slow(const void *ptr, inc ch, size_t count)
+memchr_slow(const void *ptr, inc ch, size_t count)
 {
     char const *p = ptr;
     char const *end = p +count;
@@ -108,12 +108,14 @@ memcher_slow(const void *ptr, inc ch, size_t count)
 #	define strcmp(s1, s2)		strcmp_builtin (s1, s2)
 #	define memcmp(p1, p2, len)	memcmp_builtin (p1, p2, len)
 #	define strlen(p)		strlen_builtin (p)
+#   define memchr(p, c, count) memchr_builtin(p, c, count)
 #else  /* USE_BUILTIN_STRING */
 #	define memset(addr, val, len)	memset_slow (addr, val, len)
 #	define memcpy(dest, src, len)	memcpy_slow (dest, src, len)
 #	define strcmp(s1, s2)		strcmp_slow (s1, s2)
 #	define memcmp(p1, p2, len)	memcmp_slow (p1, p2, len)
 #	define strlen(p)		strlen_slow (p)
+#   define memchr(p, c, count) memchr_slow(p, c, count)
 #endif /* USE_BUILTIN_STRING */
 
 #ifdef USE_BUILTIN_STRING
@@ -124,27 +126,33 @@ memset_builtin (void *addr, int val, int len)
 }
 
 static inline void *
-memcpy_builtin (void *dest, void *src, int len)
+memcpy_builtin (void *dest, void const *src, int len)
 {
 	return __builtin_memcpy (dest, src, len);
 }
 
 static inline int
-strcmp_builtin (char *s1, char *s2)
+strcmp_builtin (char const *s1, char const *s2)
 {
 	return __builtin_strcmp (s1, s2);
 }
 
 static inline int
-memcmp_builtin (void *p1, void *p2, int len)
+memcmp_builtin (void const *p1, void const *p2, int len)
 {
 	return __builtin_memcmp (p1, p2, len);
 }
 
 static inline int
-strlen_builtin (char *p)
+strlen_builtin (char const *p)
 {
 	return __builtin_strlen (p);
+}
+
+static inline void*
+memchhr_builtin(void const *p, int chr, int count)
+{
+    return __builtin_memchr(p, ch, count);
 }
 #endif /* USE_BUILTIN_STRING */
 
