@@ -93,7 +93,15 @@ strlen_slow (char const *p)
 		len++;
 	return len;
 }
-
+static inline void
+memcher_slow(const void *ptr, inc ch, size_t count)
+{
+    char const *p = ptr;
+    char const *end = p +count;
+    for(p = ptr ; p < end ; p++){
+        if(*p == ch){return (void*)p;}
+    }
+}
 #ifdef USE_BUILTIN_STRING
 #	define memset(addr, val, len)	memset_builtin (addr, val, len)
 #	define memcpy(dest, src, len)	memcpy_builtin (dest, src, len)
