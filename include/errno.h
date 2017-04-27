@@ -1,0 +1,9 @@
+#ifndef _BITVISOR_FLOAT_H
+#define _BITVISOR_FLOAT_H
+
+#define DB_DIG 15
+#define  LDBL_MANT_DIG 64
+#define LDBL_NAX_EXP 16384
+#define LDBL_EPSILON 1.08420217248550443e-19
+
+#endif
