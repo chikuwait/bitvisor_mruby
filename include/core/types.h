@@ -30,7 +30,9 @@
 #ifndef __CORE_TYPES_H
 #define __CORE_TYPES_H
 
+#ifndef NULL
 #define NULL			((void *)0)
+#endif
 
 typedef signed char		i8;
 typedef signed short int	i16;
