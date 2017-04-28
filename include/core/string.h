@@ -94,7 +94,7 @@ strlen_slow (char const *p)
 	return len;
 }
 static inline void *
-memchr_slow(const void *ptr, inc ch, size_t count)
+memchr_slow(const void *ptr, int ch, size_t count)
 {
     char const *p = ptr;
     char const *end = p +count;
@@ -152,7 +152,7 @@ strlen_builtin (char const *p)
 static inline void*
 memchhr_builtin(void const *p, int chr, int count)
 {
-    return __builtin_memchr(p, ch, count);
+    return __builtin_memchr(p, chr, count);
 }
 #endif /* USE_BUILTIN_STRING */
 
