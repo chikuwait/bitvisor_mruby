@@ -27,7 +27,15 @@
  * POSSIBILITY OF SUCH DAMAGE.
  */
 
+#ifndef _BITVISOR_STDINT_H
+#define _BITVISOR_STDINT_H
+
+#ifndef NULL
+#define NULL((void*)0)
+#endif
+
 typedef long int intptr_t;
+typedef unsigned long int uintptr_t;
 typedef unsigned long long int uint64_t;
 typedef unsigned int       uint32_t;
 typedef unsigned short     uint16_t;
@@ -37,12 +45,16 @@ typedef int                int32_t;
 typedef short              int16_t;
 typedef char               int8_t;
 
-typedef long int intptr_t;
-typedef unsigned long int uintptr_t;
+typedef unsigned long int size_t;
+typedef intptr_t ptrdiff_t;
+
 
 
 #define INT64_MAX 0x7ffffffffffffffff
 #define INT64_MIN -0x7fffffffffffffff - 1
+#define INT32_MAX 2147483647
+#define INT32_MIN -2147483648
+
 
 #if __WORDSIZE == 64
 #  define SIZE_MAX (18446744073709551615UL)
@@ -54,12 +66,14 @@ typedef unsigned long int uintptr_t;
 #  endif
 #endif
 
+#if !defined(__INT64_C) && !defined(__UINT64_C)
 #if __WORDSIZE == 64
 #  define __INT64_C(c)  c
 #  define __UINT64_C(c) c 
 #else
 #  define __INT64_C(c)  c
 #  define __UINT64_C(c) c
+#endif
 #endif
 
 
