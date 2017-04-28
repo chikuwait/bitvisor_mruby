@@ -31,7 +31,7 @@
 #define _BITVISOR_STDINT_H
 
 #ifndef NULL
-#define NULL((void*)0)
+#define NULL ((void*)0)
 #endif
 
 typedef long int intptr_t;
@@ -79,3 +79,4 @@ typedef intptr_t ptrdiff_t;
 
 #define UINT16_MAX  (65535)
 #define UINT64_MAX ( __UINT64_C(18446744073709551615))
+#endif
