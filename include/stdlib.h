@@ -27,6 +27,12 @@
  * POSSIBILITY OF SUCH DAMAGE.
  */
 
+#ifndef _BITVISOR_STDLIB_H
+#define _BITVISOR_STDLIB_H
+
+#include <stdint.h>
+#include <core/mm.h>
+
 #define EXIT_FAILURE    1
 #define EXIT_SUCCESS    0
 //#define __THROW NULL
@@ -34,5 +40,10 @@
 extern void abort(void) __attribute__ ((__noreturn__));
 extern void exit(int __status) __attribute__ ((__noreturn__));
 
+#define malloc(s) alloc(m);
+#define realloc(p, s) realloc(p, s)
+#define free(p) free(p)
 
+extern double strtod(char const *s, char **s_end);
+#endif
 
