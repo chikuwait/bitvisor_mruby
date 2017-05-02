@@ -43,7 +43,7 @@ memset_slow (void *addr, int val, int len)
 	while (len--)
 		*p++ = val;
 	return addr;
-}
+};
 
 static inline void *
 memcpy_slow (void *dest, void const *src, int len)
@@ -56,7 +56,7 @@ memcpy_slow (void *dest, void const *src, int len)
 	while (len--)
 		*p++ = *q++;
 	return dest;
-}
+};
 
 static inline int
 strcmp_slow (char const *s1, char const *s2)
@@ -69,20 +69,20 @@ strcmp_slow (char const *s1, char const *s2)
 		r = c1 - c2;
 	} while (!r && c1);
 	return r;
-}
+};
 
 static inline int
 memcmp_slow (void const *p1, void const *p2, int len)
 {
 	int r, i;
-	char *q1, *q2;
+	char const *q1, *q2;
 
 	q1 = p1;
 	q2 = p2;
 	for (r = 0, i = 0; !r && i < len; i++)
 		r = *q1++ - *q2++;
 	return r;
-}
+};
 
 static inline int
 strlen_slow (char const *p)
@@ -92,7 +92,7 @@ strlen_slow (char const *p)
 	while (*p++)
 		len++;
 	return len;
-}
+};
 static inline void *
 memchr_slow(const void *ptr, int ch, size_t count)
 {
@@ -101,7 +101,7 @@ memchr_slow(const void *ptr, int ch, size_t count)
     for(p = ptr ; p < end ; p++){
         if(*p == ch){return (void*)p;}
     }
-}
+};
 #ifdef USE_BUILTIN_STRING
 #	define memset(addr, val, len)	memset_builtin (addr, val, len)
 #	define memcpy(dest, src, len)	memcpy_builtin (dest, src, len)
@@ -123,37 +123,37 @@ static inline void *
 memset_builtin (void *addr, int val, int len)
 {
 	return __builtin_memset (addr, val, len);
-}
+};
 
 static inline void *
 memcpy_builtin (void *dest, void const *src, int len)
 {
 	return __builtin_memcpy (dest, src, len);
-}
+};
 
 static inline int
 strcmp_builtin (char const *s1, char const *s2)
 {
 	return __builtin_strcmp (s1, s2);
-}
+};
 
 static inline int
 memcmp_builtin (void const *p1, void const *p2, int len)
 {
 	return __builtin_memcmp (p1, p2, len);
-}
+};
 
 static inline int
 strlen_builtin (char const *p)
 {
 	return __builtin_strlen (p);
-}
+};
 
 static inline void*
-memchhr_builtin(void const *p, int chr, int count)
+memchr_builtin(void const *p, int chr, int count)
 {
     return __builtin_memchr(p, chr, count);
-}
+};
 #endif /* USE_BUILTIN_STRING */
 
 #endif
