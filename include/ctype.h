@@ -43,6 +43,7 @@ extern int toupper (int __c);
 #define isupper(c) __isctype((c), _ISupper)
 #define islower(c) __isctype((c), _ISlower)
 #define isspace(c) __isctype((c), _ISspace)
-#define isdigit(c) __isctype((c), _ISdigit
+#define isdigit(c) __isctype((c), _ISdigit)
+#define isprint(c) __isctype((c), _ISprint)
 
 #endif
