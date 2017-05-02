@@ -39,6 +39,7 @@
 #ifndef	CHELP_H
 #define	CHELP_H
 
+#include <stdlib.h>
 #define	CHELP
 
 // OpenSSL のためのコンパイルフラグ
