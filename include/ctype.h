@@ -39,6 +39,7 @@ extern int toupper (int __c);
 # define __isctype(c, type) \
  ((*__ctype_b_loc ())[(int) (c)] & (unsigned short int) type)
 
+#define isalpha(c) __isctype((c), _ISalpha) 
 #define isalnum(c) __isctype((c), _ISalnum)  
 #define isupper(c) __isctype((c), _ISupper)
 #define islower(c) __isctype((c), _ISlower)
