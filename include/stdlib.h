@@ -39,6 +39,7 @@
 
 extern void abort(void) __attribute__ ((__noreturn__));
 extern void exit(int __status) __attribute__ ((__noreturn__));
+extern int abs (int __x) __attribute__ ((__const__));
 
 #define malloc(s) alloc(m);
 #define realloc(p, s) realloc(p, s)
