@@ -5,5 +5,8 @@
 #define  LDBL_MANT_DIG 64
 #define LDBL_NAX_EXP 16384
 #define LDBL_EPSILON 1.08420217248550443e-19
+#define DBL_DIG __DBL_DIG__
+#define DBL_EPSILON __DBL_EPSILON__
+
 
 #endif
