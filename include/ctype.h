@@ -46,5 +46,6 @@ extern int toupper (int __c);
 #define isspace(c) __isctype((c), _ISspace)
 #define isdigit(c) __isctype((c), _ISdigit)
 #define isprint(c) __isctype((c), _ISprint)
+#define isxdigit(c)    __isctype((c), _ISxdigit)
 
 #endif
