@@ -34,6 +34,13 @@
 
 #define USE_BUILTIN_STRING
 
+#ifndef __STRING_INLINE
+#  ifndef __extern_inline
+#    define __STRING_INLINE inline                                                                                 
+#  else
+#    define __STRING_INLINE __extern_inline
+#  endif
+#endif
 static inline void *
 memset_slow (void *addr, int val, int len)
 {
@@ -102,6 +109,10 @@ memchr_slow(const void *ptr, int ch, size_t count)
         if(*p == ch){return (void*)p;}
     }
 };
+/*__STRING_INLINE void *__memmove_g (void *, const void *, size_t)
+    __asm__ ("memmove");       
+
+*/
 #ifdef USE_BUILTIN_STRING
 #	define memset(addr, val, len)	memset_builtin (addr, val, len)
 #	define memcpy(dest, src, len)	memcpy_builtin (dest, src, len)
@@ -118,6 +129,15 @@ memchr_slow(const void *ptr, int ch, size_t count)
 #   define memchr(p, c, count) memchr_slow(p, c, count)
 #endif /* USE_BUILTIN_STRING */
 
+#define strchr(s, c) \
+(__extension__ (__builtin_constant_p (c)\
+? ((c) == '\0'                          \
+? (char *) __rawmemchr ((s), (c))                \
+: __strchr_c ((s), ((c) & 0xff) << 8))           \
+: __strchr_g ((s), (c))))
+
+
+//#define memmove(dest, src, n) __memmove_g (dest, src, n)  
 #ifdef USE_BUILTIN_STRING
 static inline void *
 memset_builtin (void *addr, int val, int len)
