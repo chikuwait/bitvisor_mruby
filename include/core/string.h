@@ -109,10 +109,39 @@ memchr_slow(const void *ptr, int ch, size_t count)
         if(*p == ch){return (void*)p;}
     }
 };
-/*__STRING_INLINE void *__memmove_g (void *, const void *, size_t)
-    __asm__ ("memmove");       
+__STRING_INLINE void *__memmove_g (void *, const void *, size_t)
+    __asm__ ("memmove");
 
-*/
+__STRING_INLINE void *
+__memmove_g (void *__dest, const void *__src, size_t __n)
+{
+    register unsigned long int __d0, __d1, __d2;
+    register void *__tmp = __dest;
+    if (__dest < __src)
+        __asm__ __volatile__
+        ("cld\n\t"
+         "rep; movsb"
+          : "=&c" (__d0), "=&S" (__d1), "=&D" (__d2),
+        "=m" ( *(struct { __extension__ char __x[__n]; } *)__dest)
+          : "0" (__n), "1" (__src), "2" (__tmp),
+        "m" ( *(struct { __extension__ char __x[__n]; } *)__src));
+     else
+        __asm__ __volatile__
+        ("decl %1\n\t"
+         "decl %2\n\t"
+         "std\n\t"
+         "rep; movsb\n\t"
+         "cld"
+         : "=&c" (__d0), "=&S" (__d1), "=&D" (__d2),
+        "=m" ( *(struct { __extension__ char __x[__n]; } *)__dest)
+         : "0" (__n), "1" (__n + (const char *) __src),
+        "2" (__n + (char *) __tmp),
+        "m" ( *(struct { __extension__ char __x[__n]; } *)__src));
+      return __dest;
+};
+
+
+
 #ifdef USE_BUILTIN_STRING
 #	define memset(addr, val, len)	memset_builtin (addr, val, len)
 #	define memcpy(dest, src, len)	memcpy_builtin (dest, src, len)
@@ -129,15 +158,16 @@ memchr_slow(const void *ptr, int ch, size_t count)
 #   define memchr(p, c, count) memchr_slow(p, c, count)
 #endif /* USE_BUILTIN_STRING */
 
-#define strchr(s, c) \
+/*#define strchr(s, c) \
 (__extension__ (__builtin_constant_p (c)\
 ? ((c) == '\0'                          \
 ? (char *) __rawmemchr ((s), (c))                \
 : __strchr_c ((s), ((c) & 0xff) << 8))           \
 : __strchr_g ((s), (c))))
 
+*/
+#define memmove(dest, src, n) __memmove_g (dest, src, n)  
 
-//#define memmove(dest, src, n) __memmove_g (dest, src, n)  
 #ifdef USE_BUILTIN_STRING
 static inline void *
 memset_builtin (void *addr, int val, int len)
