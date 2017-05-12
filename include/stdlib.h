@@ -40,11 +40,12 @@
 extern void abort(void) __attribute__ ((__noreturn__));
 extern void exit(int __status) __attribute__ ((__noreturn__));
 extern int abs (int __x) __attribute__ ((__const__));
+static int atoi (const char *__nptr);
+extern double strtod(char const *s, char **s_end);
 
 #define malloc(s) alloc(m);
 #define realloc(p, s) realloc(p, s)
 #define free(p) free(p)
 
-extern double strtod(char const *s, char **s_end);
 #endif
 
