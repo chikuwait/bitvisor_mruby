@@ -140,6 +140,71 @@ __memmove_g (void *__dest, const void *__src, size_t __n)
       return __dest;
 };
 
+__STRING_INLINE char *__strchr_c (const char *__s, int __c);
+
+__STRING_INLINE char *
+__strchr_c (const char *__s, int __c)
+{
+    register unsigned long int __d0;
+    register char *__res;
+    __asm__ __volatile__
+        ("1:\n\t"
+        "movb  (%0),%%al\n\t"
+        "cmpb  %%ah,%%al\n\t"
+        "je    2f\n\t"
+        "leal  1(%0),%0\n\t"
+        "testb %%al,%%al\n\t"
+        "jne   1b\n\t"
+        "xorl  %0,%0\n"
+        "2:"
+        : "=r" (__res), "=&a" (__d0)
+        : "0" (__s), "1" (__c),
+          "m" ( *(struct { char __x[0xfffffff]; } *)__s)
+        : "cc");
+    return __res;
+};
+ 
+__STRING_INLINE char *__strchr_g (const char *__s, int __c);
+
+__STRING_INLINE char *
+__strchr_g (const char *__s, int __c)
+{
+    register unsigned long int __d0;
+    register char *__res;
+    __asm__ __volatile__
+        ("movb  %%al,%%ah\n"
+        "1:\n\t"
+        "movb  (%0),%%al\n\t"
+        "cmpb  %%ah,%%al\n\t"
+        "je    2f\n\t"
+        "leal  1(%0),%0\n\t"
+        "testb %%al,%%al\n\t"
+        "jne   1b\n\t"
+        "xorl  %0,%0\n"
+        "2:"
+        : "=r" (__res), "=&a" (__d0)
+        : "0" (__s), "1" (__c),
+          "m" ( *(struct { char __x[0xfffffff]; } *)__s)
+        : "cc");
+    return __res;
+};
+
+__STRING_INLINE void *__rawmemchr (const void *__s, int __c);
+__STRING_INLINE void *
+__rawmemchr (const void *__s, int __c)
+{
+    register unsigned long int __d0;
+    register unsigned char *__res;
+    __asm__ __volatile__
+    ("cld\n\t"
+    "repne; scasb\n\t"
+    : "=D" (__res), "=&c" (__d0)
+    : "a" (__c), "0" (__s), "1" (0xffffffff),
+      "m" ( *(struct { char __x[0xfffffff]; } *)__s)
+    : "cc");
+    return __res - 1;
+};
+
 
 
 #ifdef USE_BUILTIN_STRING
@@ -158,14 +223,13 @@ __memmove_g (void *__dest, const void *__src, size_t __n)
 #   define memchr(p, c, count) memchr_slow(p, c, count)
 #endif /* USE_BUILTIN_STRING */
 
-/*#define strchr(s, c) \
+#define strchr(s, c) \
 (__extension__ (__builtin_constant_p (c)\
 ? ((c) == '\0'                          \
 ? (char *) __rawmemchr ((s), (c))                \
 : __strchr_c ((s), ((c) & 0xff) << 8))           \
 : __strchr_g ((s), (c))))
 
-*/
 #define memmove(dest, src, n) __memmove_g (dest, src, n)  
 
 #ifdef USE_BUILTIN_STRING

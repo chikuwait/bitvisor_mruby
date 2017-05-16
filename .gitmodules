@@ -1,4 +1,3 @@
 [submodule "mruby"]
 	path = mruby
-	url = git@github.com:chikuwait/mruby
-	branch = mruby_lkm
+	url = https://github.com/chikuwait/mruby
