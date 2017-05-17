@@ -205,7 +205,37 @@ __rawmemchr (const void *__s, int __c)
     return __res - 1;
 };
 
-
+__STRING_INLINE int __strncmp_g (const char *__s1, const char *__s2, size_t __n);
+__STRING_INLINE int
+__strncmp_g (const char *__s1, const char *__s2, size_t __n)
+{
+    register int __res;
+    __asm__ __volatile__
+        ("1:\n\t"
+         "subl  $1,%3\n\t"
+         "jc    2f\n\t"
+         "movb  (%1),%b0\n\t"
+         "incl  %1\n\t"
+         "cmpb  %b0,(%2)\n\t"
+         "jne   3f\n\t"
+         "incl  %2\n\t"
+         "testb %b0,%b0\n\t"
+         "jne   1b\n"
+         "2:\n\t"
+         "xorl  %0,%0\n\t"
+         "jmp   4f\n"
+         "3:\n\t"
+         "movl  $1,%0\n\t"
+         "jb    4f\n\t"
+         "negl  %0\n"
+         "4:"
+         : "=q" (__res), "=&r" (__s1), "=&r" (__s2), "=&r" (__n)
+         : "1"  (__s1), "2"  (__s2),  "3" (__n),
+             "m" ( *(struct { __extension__ char __x[__n]; } *)__s1),
+             "m" ( *(struct { __extension__ char __x[__n]; } *)__s2)
+         : "cc");
+    return __res;
+}
 
 #ifdef USE_BUILTIN_STRING
 #	define memset(addr, val, len)	memset_builtin (addr, val, len)
@@ -229,6 +259,14 @@ __rawmemchr (const void *__s, int __c)
 ? (char *) __rawmemchr ((s), (c))                \
 : __strchr_c ((s), ((c) & 0xff) << 8))           \
 : __strchr_g ((s), (c))))
+
+ # define strncmp(s1, s2, n) \
+ (__extension__ (__builtin_constant_p (s1) && strlen (s1) < ((size_t) (n))   \
+ ? strcmp ((s1), (s2))                       \
+ : (__builtin_constant_p (s2) && strlen (s2) < ((size_t) (n))\
+ ? strcmp ((s1), (s2))                    \
+ : __strncmp_g ((s1), (s2), (n)))))
+
 
 #define memmove(dest, src, n) __memmove_g (dest, src, n)  
 
