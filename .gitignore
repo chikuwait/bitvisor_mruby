@@ -1,4 +1,3 @@
-syntax: glob
 *.o
 *.a
 *.d
@@ -26,4 +25,3 @@ boot/login-simple/module2.bin
 boot/login-simple/readdata
 *.bin
 *.bin.s
-syntax: regexp
