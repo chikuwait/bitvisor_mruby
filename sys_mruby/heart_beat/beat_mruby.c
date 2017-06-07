@@ -7,7 +7,6 @@ heartbeat_thread(void *arg)
 {
     u64 cur, prev;
     prev = get_time();
-
     for(;;){
         schedule();
         cur = get_time();
@@ -22,7 +21,7 @@ heartbeat_thread(void *arg)
 
 static void 
 heartbeat_kernel_init(void)
-{
+{    
     thread_new(heartbeat_thread, NULL, VMM_STACKSIZE);
 }
-INITFUNC("config1", heartbeat_kernel_init);
+INITFUNC("vmmcal0", heartbeat_kernel_init);
