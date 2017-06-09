@@ -1,10 +1,16 @@
 #include <core.h>
 #include <core/thread.h>
 #include <core/time.h>
+#include <mruby.h>
+#include <mruby/compile.h>
 
 static void
 heartbeat_thread(void *arg)
 {
+    mrb_state *mrb = mrb_open();
+    mrb_load_string(mrb,"p 'hello mruby'");
+    mrb_close(mrb);
+
     u64 cur, prev;
     prev = get_time();
     for(;;){
