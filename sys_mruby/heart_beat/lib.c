@@ -8,8 +8,9 @@
 #define INT_MAX 2147483647
 
 typedef unsigned long size_t;
-void *realloc (void *virt, uint len);
-void free (void *virt);
+typedef void * FILE;
+//void *realloc (void *virt, uint len);
+//void free (void *virt);
 
 int * __errno_location(void);
 long int strtol(char *nptr, char **endptr, int base);
@@ -17,6 +18,17 @@ unsigned long int strtoul(const char *nptr, char **endptr, int base);
 
 void abort(void);
 void exit(int status);
+
+void fprintf(FILE *fp,char *format, ...)
+{
+    printf("\n%s\n",format);
+}
+
+size_t
+fwrite(const void *buf, size_t size, size_t num, FILE *fp)
+{
+    return 0;
+}
 
 int 
 strncmp(const char *first, const char *last, unsigned int count)
