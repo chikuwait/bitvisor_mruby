@@ -7,7 +7,9 @@
 static void
 heartbeat_thread(void *arg)
 {
+    printf("call mrb_open");
     mrb_state *mrb = mrb_open();
+    printf("test");
     mrb_load_string(mrb,"p 'hello mruby'");
     mrb_close(mrb);
 
@@ -28,6 +30,9 @@ heartbeat_thread(void *arg)
 static void 
 heartbeat_kernel_init(void)
 {    
+    printf("heartbeat_kernel_init invoked.\n");
+    //volatile mrb_state *mrb = mrb_open();
+    //printf("heartbeat_kernel_init: mrb_open() = %p .\n", mrb);
     thread_new(heartbeat_thread, NULL, VMM_STACKSIZE);
 }
 INITFUNC("vmmcal0", heartbeat_kernel_init);
