@@ -12,6 +12,8 @@ typedef void * FILE;
 //void *realloc (void *virt, uint len);
 //void free (void *virt);
 
+size_t mem = 0;
+
 int * __errno_location(void);
 long int strtol(char *nptr, char **endptr, int base);
 unsigned long int strtoul(const char *nptr, char **endptr, int base);
@@ -21,7 +23,20 @@ void exit(int status);
 
 void fprintf(FILE *fp,char *format, ...)
 {
-    printf("\n%s\n",format);
+    va_list ap;
+    va_start(ap,format);
+    vprintf(format,ap);
+    va_end(ap);
+}
+void memprintf(char *format,size_t size,...)
+{   
+    mem += size;
+    va_list ap;
+    va_start(ap,format);
+    printf("size::%zd\n",mem);
+    vprintf(format,ap);
+    va_end(ap);
+   
 }
 
 size_t
