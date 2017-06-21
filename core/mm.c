@@ -48,7 +48,7 @@
 #include "string.h"
 #include "uefi.h"
 
-#define VMMSIZE_ALL		(1024 * 1024 * 1024)
+#define VMMSIZE_ALL		(512 * 1024 * 1024)
 #define NUM_OF_PAGES		(VMMSIZE_ALL >> PAGESIZE_SHIFT)
 #define NUM_OF_ALLOCSIZE	13
 #define MAPMEM_ADDR_START	0xF0000000
@@ -497,6 +497,7 @@ virt_to_page (virt_t virt)
 	unsigned int i;
 
 	i = (virt - VMM_START_VIRT) >> PAGESIZE_SHIFT;
+    printf("virt:%x\n",virt);
 	ASSERT (i < NUM_OF_PAGES);
 	return &pagestruct[i];
 }
