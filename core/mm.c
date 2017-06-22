@@ -497,7 +497,7 @@ virt_to_page (virt_t virt)
 	unsigned int i;
 
 	i = (virt - VMM_START_VIRT) >> PAGESIZE_SHIFT;
-    printf("virt:%x\n",virt);
+    //printf("virt:%x\n",virt);
 	ASSERT (i < NUM_OF_PAGES);
 	return &pagestruct[i];
 }
