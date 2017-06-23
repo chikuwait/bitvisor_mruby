@@ -1,3 +1,0 @@
-[submodule "sys_mruby/mruby"]
-	path = sys_mruby/mruby
-	url = git@github.com:chikuwait/mruby.git
