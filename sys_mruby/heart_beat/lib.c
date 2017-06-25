@@ -9,8 +9,6 @@
 
 typedef unsigned long size_t;
 typedef void * FILE;
-//void *realloc (void *virt, uint len);
-//void free (void *virt);
 
 size_t mem = 0;
 
@@ -21,22 +19,24 @@ unsigned long int strtoul(const char *nptr, char **endptr, int base);
 void abort(void);
 void exit(int status);
 
-void fprintf(FILE *fp,char *format, ...)
+void
+fprintf(FILE *fp,char *format, ...)
 {
     va_list ap;
     va_start(ap,format);
     vprintf(format,ap);
     va_end(ap);
 }
-void memprintf(char *format,size_t size,...)
-{   
+
+void
+memprintf(char *format,size_t size,...)
+{
     mem += size;
     va_list ap;
     va_start(ap,format);
     printf("size::%zd\n",mem);
     vprintf(format,ap);
     va_end(ap);
-   
 }
 
 size_t
@@ -45,7 +45,7 @@ fwrite(const void *buf, size_t size, size_t num, FILE *fp)
     return 0;
 }
 
-int 
+int
 strncmp(const char *first, const char *last, unsigned int count)
 {
     unsigned int i = 0;
@@ -78,17 +78,17 @@ strncmp(const char *first, const char *last, unsigned int count)
     return 0;
 }
 
-void 
+void
 *memmove(void *dst, const void *src, unsigned int count)
 {
     void *ret = dst;
-    
+
     if(dst == NULL || src == NULL || count == 0){
         return NULL;
     }
-    
+
     if(dst <= src || (unsigned char *)dst >= ((unsigned char *)src + count)){
-        
+
         while(count--){
             *(unsigned char *)dst = *(unsigned char *)src;
             dst = (unsigned char *)dst + 1;
@@ -97,7 +97,7 @@ void
     }else{
         dst = (unsigned char *)dst + count - 1;
         src = (unsigned char *)src + count - 1;
-        
+
         while(count--){
             *(unsigned char *)dst = *(unsigned char *)src;
             dst = (unsigned char *)dst -1;
@@ -106,13 +106,14 @@ void
     }
     return ret;
 }
+
 unsigned long int
 strtoul(const char *nptr, char **endptr, int base)
 {
     return (unsigned long int)strtol(nptr,endptr,base);
 }
 
-void 
+void
 *memchr(const void *buf, int chr, unsigned int  count)
 {
     if(buf == NULL){
@@ -163,7 +164,7 @@ atoi(const char *nptr)
         return r;
 }
 
-char 
+char
 *strchr(char *s, int c)
 {
     while(*s){
