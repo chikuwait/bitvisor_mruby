@@ -9,7 +9,7 @@
 
 typedef unsigned long size_t;
 typedef void * FILE;
-
+typedef long int ptrdiff_t;
 size_t mem = 0;
 
 int * __errno_location(void);
