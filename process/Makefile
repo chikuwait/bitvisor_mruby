@@ -1,6 +1,7 @@
-CFLAGS += -Iprocess/lib
+CFLAGS +=-Iprocess/lib
 
-bins-1 += debug help init log panic recvexample sendexample sendint
+
+bins-1 += debug help init log panic recvexample sendexample sendint mirb
 bins-1 += serialtest shell
 bins-$(CONFIG_IDMAN) += idman
 bins-$(CONFIG_STORAGE) += storage
@@ -27,3 +28,4 @@ vpn-objs = vpn.o
 vpn-libs = vpn/lib/$(outa) crypto/$(outa)
 echoctl-objs = echoctl.o
 monitor-objs = monitor.o
+mirb-objs =mirb.o
