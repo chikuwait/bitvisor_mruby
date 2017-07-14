@@ -38,19 +38,12 @@ heartbeat_thread(void *arg)
         bitvisor = mrb_define_class(mrb,"Bitvisor",mrb->object_class);
         mrb_define_class_method(mrb,bitvisor,"print",bitvisor_print,ARGS_REQ(1));
         mrb_load_irep(mrb,chikuwait);
-        mrb_close(mrb);
-/*
+
         mrbc_context *cxt = mrbc_context_new(mrb);
-        mrb_load_string_cxt(mrb,"def test(num1,num2);return ([num1..num2].inject{|sum, n| sum + n});",cxt);
-
-        mrb_value test = mrb_funcall(mrb,mrb_top_self(mrb),"test",2,mrb_fixnum_value(1),mrb_fixnum_value(10));
-        int ret = mrb_fixnum(test);
-
-        printf("ret = %d\n",ret);
+        mrb_load_string_cxt(mrb,"",cxt);
         mrbc_context_free(mrb,cxt);
-        mrb_close(mrb);*/
+        mrb_close(mrb);
     }
-
     /*  u64 cur, prev;
     prev = get_time();
     for(;;){
