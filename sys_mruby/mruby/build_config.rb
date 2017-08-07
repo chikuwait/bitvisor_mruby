@@ -125,7 +125,7 @@ end
 MRuby::CrossBuild.new('BitVisor') do |conf|
    toolchain :gcc
 
-   conf.cc.include_paths << "include/kernel"
+   conf.cc.include_paths << "include/bitvisor"
    conf.cc.flags << "-mcmodel=kernel -mno-red-zone -mfpmath=387 -mno-sse -mno-sse2 -mno-mmx -mno-3dnow -msoft-float -fno-asynchronous-unwind-tables -fno-omit-frame-pointer -fno-stack-protector"
    conf.cc.defines << %w(DISABLE_STDIO)
    conf.cc.defines << %w(DISABLE_FLOAT)
