@@ -11,6 +11,7 @@ bitvisor.map
 .objects
 .boptions
 defconfig
+libmruby.a
 boot/login/conf/bitvisor.conf
 boot/login/initrd/initrd.gz
 boot/login/linux/linux-*
@@ -23,5 +24,6 @@ boot/login-simple/makedata
 boot/login-simple/module1.bin
 boot/login-simple/module2.bin
 boot/login-simple/readdata
+tools/dbgsh
 *.bin
 *.bin.s
