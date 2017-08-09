@@ -9,7 +9,7 @@
 #include <mruby/string.h>
 #include <mruby/irep.h>
 #include <mruby/proc.h>
-uint8_t chikuwait[];
+uint8_t mrb_beat_code[];
 void
 *allocate(struct mrb_state *mrb, void *p, size_t size, void *ud)
 {
@@ -29,32 +29,37 @@ bitvisor_print(mrb_state *mrb,mrb_value self)
     mrb_get_args(mrb, "S", &str);
     printf("%s", RSTRING_PTR(str));
 }
+
+mrb_value
+bitvisor_get_time(mrb_state *mrb,mrb_value self)
+{
+    mrb_int a;
+    a = get_time();
+    return mrb_fixnum_value(a);
+}
+mrb_value
+bitvisor_set_schedule(mrb_state *mrb,mrb_value self)
+{
+    schedule();
+}
 static void
 heartbeat_thread(void *arg)
 {
     mrb_state *mrb = mrb_open_allocf(allocate,NULL);
+    printf("mruby opend\n");
     struct RClass *bitvisor;
     if(mrb != NULL){
         bitvisor = mrb_define_class(mrb,"Bitvisor",mrb->object_class);
         mrb_define_class_method(mrb,bitvisor,"print",bitvisor_print,ARGS_REQ(1));
-        mrb_load_irep(mrb,chikuwait);
+        mrb_define_class_method(mrb,bitvisor,"get_time",bitvisor_get_time,ARGS_NONE());
+        mrb_define_class_method(mrb,bitvisor,"set_schedule",bitvisor_set_schedule,ARGS_NONE());
+        mrb_load_irep(mrb,mrb_beat_code);
 
         mrbc_context *cxt = mrbc_context_new(mrb);
         mrb_load_string_cxt(mrb,"",cxt);
         mrbc_context_free(mrb,cxt);
         mrb_close(mrb);
     }
-    /*  u64 cur, prev;
-    prev = get_time();
-    for(;;){
-        schedule();
-        cur = get_time();
-
-        if(cur - prev >= 5 * 1000 * 1000 ){
-            printf("%11lld:tick!\n", cur);
-            prev = cur;
-        }
-    }*/
     thread_exit();
 }
 
@@ -62,8 +67,6 @@ static void
 heartbeat_kernel_init(void)
 {
     printf("heartbeat_kernel_init invoked.\n");
-    //volatile mrb_state *mrb = mrb_open();
-    //printf("heartbeat_kernel_init: mrb_open() = %p .\n", mrb);
     thread_new(heartbeat_thread, NULL, VMM_STACKSIZE);
 }
 INITFUNC("vmmcal0", heartbeat_kernel_init);
