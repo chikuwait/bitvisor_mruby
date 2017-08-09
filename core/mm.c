@@ -48,7 +48,7 @@
 #include "string.h"
 #include "uefi.h"
 
-#define VMMSIZE_ALL		(256 * 1024 * 1024)
+#define VMMSIZE_ALL		(128 * 1024 * 1024)
 #define NUM_OF_PAGES		(VMMSIZE_ALL >> PAGESIZE_SHIFT)
 #define NUM_OF_ALLOCSIZE	13
 #define MAPMEM_ADDR_START	0xF0000000
