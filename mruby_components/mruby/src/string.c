@@ -10,12 +10,14 @@
 #include <stddef.h>
 #include <stdlib.h>
 #include <string.h>
+#include <bitvisor/softfloat.h>
 #include "mruby.h"
 #include "mruby/array.h"
 #include "mruby/class.h"
 #include "mruby/range.h"
 #include "mruby/string.h"
 #include "mruby/re.h"
+#include "mruby/numeric.h"
 
 const char mrb_digitmap[] = "0123456789abcdefghijklmnopqrstuvwxyz";
 
@@ -28,7 +30,7 @@ typedef struct mrb_shared_string {
 
 static mrb_value str_replace(mrb_state *mrb, struct RString *s1, struct RString *s2);
 static mrb_value mrb_str_subseq(mrb_state *mrb, mrb_value str, mrb_int beg, mrb_int len);
-
+#define EXPCHAR 'e'
 MRB_API mrb_int
 mrb_str_strlen(mrb_state *mrb, struct RString *s)
 {
@@ -44,6 +46,82 @@ mrb_str_strlen(mrb_state *mrb, struct RString *s)
   return max;
 }
 
+float64_t
+strtof64(const char *nptr, char **endptr)
+{
+  float64_t result;
+  float64_t d = {0};
+  int16_t e=0;
+  int8_t i=0,npos=0;
+  int64_t nlog=10;
+  char c=nptr[0];
+  int8_t k;
+  bool stop = false;
+  bool neg = false;
+  int8_t nexp = 0;
+  bool sexp = false;
+  float64_t large;
+
+  for(i=0;c&&!stop;i++){
+    c=nptr[i];
+    k=c<'A'?c-'0':c-'A'+10;
+    switch(c){
+    case 'A' ... 'F': //accept hex as well
+    case '0' ... '9':
+      if(nexp){ /* exponent */
+	e *= 10;
+	e += k;
+	nexp++;
+      }
+      else if(npos>=0){ /* before the point */
+	d = f64_mul(d,i32_to_f64(10));
+	d = f64_add(d,i32_to_f64(k));
+	npos++;
+      }
+      else{ /* after the point */
+	d = f64_add(d, f64_div(i32_to_f64(k),i64_to_f64(nlog)) );
+	npos--;
+	nlog*=10;
+      }
+      break;
+    case '.':
+      if(npos>=0){
+	npos=-1;
+      }
+      break;
+    case '-':
+      if(nexp)sexp=true;
+      else neg=true;
+      break;
+    case EXPCHAR:
+      nexp=1;
+      break;
+    case '_': /* placeholders that does nothing */
+    case '+':
+      continue;
+    default:
+      stop = true;
+      break;
+    }
+  }
+
+  large=f64_pow(i64_to_f64(15),i64_to_f64(10)); //can't go to 16 in hex mode
+  large=f64_mul(large,i32_to_f64(10)); //large=ibase^16
+  if(sexp){ // multiply exponent in
+    while(e>=16){ d=f64_div(d,large); e-=16;}
+    while(e--) d=f64_div(d,i32_to_f64(10));
+  }
+  else{
+    while(e>=16){ d=f64_mul(d,large);e-=16;}
+    while(e--) d=f64_mul(d,i32_to_f64(10));
+  }
+
+  if(endptr)*endptr += i;
+  if(!neg)result = d;
+  else result = f64_mul(d,i32_to_f64(-1));
+
+  return result;
+}
 static inline void
 resize_capa(mrb_state *mrb, struct RString *s, mrb_int capacity)
 {
@@ -2065,21 +2143,23 @@ mrb_str_to_i(mrb_state *mrb, mrb_value self)
   return mrb_str_to_inum(mrb, self, base, FALSE);
 }
 
-MRB_API double
+MRB_API float64_t
 mrb_cstr_to_dbl(mrb_state *mrb, const char * p, mrb_bool badcheck)
 {
   char *end;
-  double d;
+  float64_t d;
 
   enum {max_width = 20};
 
-  if (!p) return 0.0;
+//  if (!p) return 0.0;
+  if (!p) return i64_to_f64(0);
   while (ISSPACE(*p)) p++;
 
   if (!badcheck && p[0] == '0' && (p[1] == 'x' || p[1] == 'X')) {
-    return 0.0;
+   // return 0.0;
+   return i64_to_f64(0);
   }
-  d = strtod(p, &end);
+  d = strtof64(p, &end);
   if (p == end) {
     if (badcheck) {
 bad:
@@ -2115,10 +2195,11 @@ bad:
     p = buf;
 
     if (!badcheck && p[0] == '0' && (p[1] == 'x' || p[1] == 'X')) {
-      return 0.0;
+      //return 0.0;
+      return i64_to_f64(0);
     }
 
-    d = strtod(p, &end);
+    d = strtof64(p, &end);
     if (badcheck) {
       if (!end || p == end) goto bad;
       while (*end && ISSPACE(*end)) end++;
@@ -2128,7 +2209,7 @@ bad:
   return d;
 }
 
-MRB_API double
+MRB_API float64_t
 mrb_str_to_dbl(mrb_state *mrb, mrb_value str, mrb_bool badcheck)
 {
   char *s;

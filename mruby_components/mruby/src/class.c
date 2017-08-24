@@ -6,6 +6,7 @@
 
 #include <ctype.h>
 #include <stdarg.h>
+#include <bitvisor/softfloat.h>
 #include "mruby.h"
 #include "mruby/array.h"
 #include "mruby/class.h"
@@ -17,7 +18,7 @@
 #include "mruby/data.h"
 
 KHASH_DEFINE(mt, mrb_sym, struct RProc*, TRUE, kh_int_hash_func, kh_int_hash_equal)
-
+#define f64_to_i64(x) f64_to_i64((x), softfloat_round_near_even, 1)
 void
 mrb_gc_mark_mt(mrb_state *mrb, struct RClass *c)
 {
@@ -640,7 +641,8 @@ mrb_get_args(mrb_state *mrb, const char *format, ...)
                 if (!FIXABLE(f)) {
                   mrb_raise(mrb, E_RANGE_ERROR, "float too big for int");
                 }
-                *p = (mrb_int)f;
+               // *p = (mrb_int)f;
+               *p = f64_to_i64(f);
               }
               break;
             case MRB_TT_STRING:

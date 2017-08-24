@@ -39,7 +39,7 @@ mrb_hash_ht_hash_func(mrb_state *mrb, mrb_value key)
     return kh_int_hash_func(mrb, h);
 
   case MRB_TT_FIXNUM:
-    h = (khint_t)mrb_float_id((mrb_float)mrb_fixnum(key));
+    h = (khint_t)mrb_float_id(i64_to_f64(mrb_fixnum(key)));
     return kh_int_hash_func(mrb, h);
 
   case MRB_TT_FLOAT:
@@ -71,7 +71,7 @@ mrb_hash_ht_hash_equal(mrb_state *mrb, mrb_value a, mrb_value b)
     case MRB_TT_FIXNUM:
       return mrb_fixnum(a) == mrb_fixnum(b);
     case MRB_TT_FLOAT:
-      return (mrb_float)mrb_fixnum(a) == mrb_float(b);
+      return f64_eq(i64_to_f64(mrb_fixnum(a)),mrb_float(b));
     default:
       return FALSE;
     }
@@ -79,9 +79,9 @@ mrb_hash_ht_hash_equal(mrb_state *mrb, mrb_value a, mrb_value b)
   case MRB_TT_FLOAT:
     switch (mrb_type(b)) {
     case MRB_TT_FIXNUM:
-      return mrb_float(a) == (mrb_float)mrb_fixnum(b);
+      return f64_eq(mrb_float(a),i64_to_f64(mrb_fixnum(b)));
     case MRB_TT_FLOAT:
-      return mrb_float(a) == mrb_float(b);
+      return f64_eq(mrb_float(a),mrb_float(b));
     default:
       return FALSE;
     }

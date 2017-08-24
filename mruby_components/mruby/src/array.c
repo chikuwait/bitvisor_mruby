@@ -659,7 +659,7 @@ aget_index(mrb_state *mrb, mrb_value index)
     return mrb_fixnum(index);
   }
   else if (mrb_float_p(index)) {
-    return (mrb_int)mrb_float(index);
+    return f64_to_i64(mrb_float(index),softfloat_round_near_even,true);
   }
   else {
     mrb_int i, argc;

@@ -6,9 +6,9 @@
 
 #include <float.h>
 #include <limits.h>
-#include <math.h>
+//#include <math.h>
 #include <stdlib.h>
-
+#include <bitvisor/softfloat.h>
 #include "mruby.h"
 #include "mruby/array.h"
 #include "mruby/numeric.h"
@@ -20,19 +20,104 @@
 #define fmod(x,y) fmodf(x,y)
 #define FLO_MAX_DIGITS 7
 #define FLO_MAX_SIGN_LENGTH 3
-#define FLO_EPSILON FLT_EPSILON
+//#define FLO_EPSILON FLT_EPSILON
 #else
 #define FLO_MAX_DIGITS 14
 #define FLO_MAX_SIGN_LENGTH 10
-#define FLO_EPSILON DBL_EPSILON
+//#define FLO_EPSILON DBL_EPSILON
 #endif
+#define f64_to_i64(x) f64_to_i64((x), softfloat_round_near_even, 1)
+#define f64_signbit(f)((f.v>>63))
+static float64_t NAN = {0xFFFFFFFFFFFFFFFF};
+static float64_t INFINITY = {0x7FF0000000000000};
+static float64_t FLO_EPSILON = {0x3E112E0BE826D695};
+
+static int
+f64_isnan(float64_t f)
+{
+    return f64_isSignalingNaN(f);
+}
+static int
+f64_isinf (float64_t f) {
+  if (((f.v>>52) & 0x07FF) != 0x07FF){
+    return 0;
+  }
+  if ((f.v<<12) != 0){
+    return 0;
+  }
+  return 1;
+}
+static int
+f64_isfinite(float64_t f)
+{
+    if(f64_isinf(f))
+        return 0;
+    if(f64_isnan(f))
+        return 0;
+    return 1;
+}
+
+static float64_t
+f64_floor (float64_t f) {
+    return f64_roundToInt(f,softfloat_round_min,0);
+}
+
+float64_t
+f64_log(float64_t arg)
+{
+    float64_t integral = {0};
+    int n = 50000;
+    float64_t dx = f64_div(f64_sub(arg,ui32_to_f64(1)),ui32_to_f64(n));
+    if(f64_lt(arg,ui32_to_f64(1))) return i32_to_f64(-1);
+
+    for(int i = 1 ; i-1 < n;i++){
+        integral = f64_add(integral,f64_div(ui32_to_f64(1),f64_add(f64_mul(ui32_to_f64(i),dx),ui32_to_f64(1))));
+    }
+    integral = f64_add(integral,f64_div(ui32_to_f64(1),ui32_to_f64(2)));
+    integral = f64_add(integral,f64_div(ui32_to_f64(1),arg));
+    integral = f64_mul(integral,dx);
+    return integral;
+}
+
+float64_t
+f64_log10(float64_t arg)
+{
+
+    float64_t ex = f64_log(arg);
+    float64_t e10 = f64_log(i32_to_f64(10));
+    return f64_div(ex,e10);
+}
+static float64_t
+f64_ceil (float64_t f) {
+  return f64_roundToInt(f,softfloat_round_max,0);
+}
+
+float64_t
+f64_pow(float64_t a,float64_t b)
+{
+    int n = f64_to_i64(b);
+    float64_t buf = {a.v};
+    if(b.v == 0 ||a.v == 0x3FF0000000000000){
+        buf.v =0x3FF0000000000000;
+        return buf;
+    }
+    if(a.v == 0){
+        buf.v = 0;
+        return buf;
+    }
+    for(int m = 1; m < n; m++){
+        buf = f64_mul(buf,a);
+    }
+    return buf;
+}
 
 MRB_API mrb_float
 mrb_to_flo(mrb_state *mrb, mrb_value val)
 {
   switch (mrb_type(val)) {
   case MRB_TT_FIXNUM:
-    return (mrb_float)mrb_fixnum(val);
+   // return (mrb_float)mrb_fixnum(val);
+   return (i64_to_f64(mrb_fixnum(val)));
   case MRB_TT_FLOAT:
     break;
   default:
@@ -58,9 +143,10 @@ num_pow(mrb_state *mrb, mrb_value x)
 
   mrb_get_args(mrb, "o", &y);
   yv = mrb_to_flo(mrb, y);
-  d = pow(mrb_to_flo(mrb, x), yv);
-  if (mrb_fixnum_p(x) && mrb_fixnum_p(y) && FIXABLE(d) && yv > 0)
-    return mrb_fixnum_value((mrb_int)d);
+  d = f64_pow(mrb_to_flo(mrb, x), yv);
+  if (mrb_fixnum_p(x) && mrb_fixnum_p(y) && FIXABLE(d) && f64_lt(i64_to_f64(0),yv))
+//    return mrb_fixnum_value((mrb_int)d);
+     return mrb_fixnum_value(f64_to_i64(d));
   return mrb_float_value(mrb, d);
 }
 
@@ -78,7 +164,7 @@ num_pow(mrb_state *mrb, mrb_value x)
 mrb_value
 mrb_num_div(mrb_state *mrb, mrb_value x, mrb_value y)
 {
-  return mrb_float_value(mrb, mrb_to_flo(mrb, x) / mrb_to_flo(mrb, y));
+  return mrb_float_value(mrb, f64_div(mrb_to_flo(mrb, x),mrb_to_flo(mrb, y)));
 }
 
 /* 15.2.9.3.19(x) */
@@ -95,7 +181,7 @@ num_div(mrb_state *mrb, mrb_value x)
   mrb_float y;
 
   mrb_get_args(mrb, "f", &y);
-  return mrb_float_value(mrb, mrb_to_flo(mrb, x) / y);
+  return mrb_float_value(mrb, f64_div(mrb_to_flo(mrb, x),y));
 }
 
 /********************************************************************
@@ -106,18 +192,19 @@ num_div(mrb_state *mrb, mrb_value x)
  *  the native architecture's double-precision floating point
  *  representation.
  */
+#define f64_signbit(f)((f.v>>63))
 
 static mrb_value
 mrb_flo_to_str(mrb_state *mrb, mrb_float flo)
 {
-  double n = (double)flo;
+  float64_t n = flo;
   int max_digits = FLO_MAX_DIGITS;
 
-  if (isnan(n)) {
+  if(f64_isnan(n)){
     return mrb_str_new_lit(mrb, "NaN");
   }
-  else if (isinf(n)) {
-    if (n < 0) {
+  else if(f64_isinf(n)){
+    if (f64_lt(n,i64_to_f64(0))){
       return mrb_str_new_lit(mrb, "-inf");
     }
     else {
@@ -133,17 +220,16 @@ mrb_flo_to_str(mrb_state *mrb, mrb_float flo)
     char *c = &s[0];
     int length = 0;
 
-    if (signbit(n)) {
-      n = -n;
+    if (f64_signbit(n)) {
+      n = f64_mul(n, i64_to_f64(-1));
       *(c++) = '-';
     }
-
-    if (n != (mrb_float)0.0) {
-      if (n > (mrb_float)1.0) {
-        exp = (int)floor(log10(n));
+    if (!f64_eq(n,i64_to_f64(0))) {
+      if(!f64_lt(i64_to_f64(1),n)){
+        exp = (int)f64_to_i64(f64_floor(f64_log10(n)));
       }
       else {
-        exp = (int)-ceil(-log10(n));
+          exp = (int)f64_to_i64(f64_mul(f64_ceil(f64_mul(f64_log10(n),i64_to_f64(-1))),i64_to_f64(-1)));
       }
     }
     else {
@@ -153,12 +239,13 @@ mrb_flo_to_str(mrb_state *mrb, mrb_float flo)
     /* preserve significands */
     if (exp < 0) {
       int i, beg = -1, end = 0;
-      double f = n;
-      double fd = 0;
+      float64_t f = n;
+      float64_t fd = {0};
+
       for (i = 0; i < FLO_MAX_DIGITS; ++i) {
-        f = (f - fd) * (mrb_float)10.0;
-        fd = floor(f + FLO_EPSILON);
-        if (fd != 0) {
+          f = f64_mul(f64_sub(f,fd),i64_to_f64(10));
+          fd = f64_floor(f64_add(f,FLO_EPSILON));
+        if (!f64_eq(fd,i64_to_f64(0))) {
           if (beg < 0) beg = i;
           end = i + 1;
         }
@@ -170,8 +257,8 @@ mrb_flo_to_str(mrb_state *mrb, mrb_float flo)
     if (abs(exp) + length >= FLO_MAX_DIGITS) {
       /* exponent representation */
       e = TRUE;
-      n = n / pow((mrb_float)10.0, exp);
-      if (isinf(n)) {
+      n = f64_div(n,f64_pow(i64_to_f64(10),i64_to_f64(exp)));
+      if (f64_isinf(n)) {
         if (s < c) {            /* s[0] == '-' */
           return mrb_str_new_lit(mrb, "-0.0");
         }
@@ -189,23 +276,22 @@ mrb_flo_to_str(mrb_state *mrb, mrb_float flo)
 
     /* puts digits */
     while (max_digits >= 0) {
-      double weight = (m < 0) ? 0.0 : pow(10.0, m);
-      double fdigit = (m < 0) ? n * (mrb_float)10.0 : n / weight;
-
-      if (fdigit < 0) fdigit = n = 0;
-      if (m < -1 && fdigit < FLO_EPSILON) {
+      float64_t weight = (m < 0) ? i64_to_f64(0) : f64_pow(i64_to_f64(10),i64_to_f64(m));
+      float64_t fdigit = (m < 0) ? f64_mul(n,i64_to_f64(10)) : f64_div(n,weight);
+      if(f64_lt(fdigit,i64_to_f64(0))) fdigit = n = i64_to_f64(0);
+      if(m < -1 && f64_lt(fdigit,FLO_EPSILON)){
         if (e || exp > 0 || m <= -abs(exp)) {
           break;
         }
       }
-      digit = (int)floor(fdigit + FLO_EPSILON);
+      digit = f64_to_i64(f64_floor(f64_add(fdigit,FLO_EPSILON)));
       if (m == 0 && digit > 9) {
-        n /= (mrb_float)10.0;
+        n = f64_div(n,i64_to_f64(10));
         exp++;
         continue;
       }
       *(c++) = '0' + digit;
-      n = (m < 0) ? n * (mrb_float)10.0 - digit : n - (digit * weight);
+      n = (m < 0) ? f64_sub(f64_mul(n,i64_to_f64(10)),i64_to_f64(digit)) : f64_sub(n,f64_mul(i64_to_f64(digit),weight));
       max_digits--;
       if (m-- == 0) {
         *(c++) = '.';
@@ -275,7 +361,7 @@ flo_minus(mrb_state *mrb, mrb_value x)
   mrb_value y;
 
   mrb_get_args(mrb, "o", &y);
-  return mrb_float_value(mrb, mrb_float(x) - mrb_to_flo(mrb, y));
+  return mrb_float_value(mrb, f64_sub(mrb_float(x),mrb_to_flo(mrb, y)));
 }
 
 /* 15.2.9.3.3  */
@@ -293,35 +379,37 @@ flo_mul(mrb_state *mrb, mrb_value x)
   mrb_value y;
 
   mrb_get_args(mrb, "o", &y);
-  return mrb_float_value(mrb, mrb_float(x) * mrb_to_flo(mrb, y));
+  return mrb_float_value(mrb, f64_mul(mrb_float(x) ,mrb_to_flo(mrb, y)));
 }
-
 static void
 flodivmod(mrb_state *mrb, mrb_float x, mrb_float y, mrb_float *divp, mrb_float *modp)
 {
   mrb_float div;
   mrb_float mod;
 
-  if (y == (mrb_float)0.0) {
+//  if (y == (mrb_float)0.0) {
+    if(f64_eq(y,i64_to_f64(0))){
     div = INFINITY;
     mod = NAN;
   }
   else {
-    mod = fmod(x, y);
-    if (isinf(x) && isfinite(y))
+    mod = f64_rem(x, y);
+    if (f64_isinf(x) && f64_isfinite(y))
       div = x;
     else
-      div = (x - mod) / y;
-    if (y*mod < 0) {
-      mod += y;
-      div -= (mrb_float)1.0;
+        div = f64_div(f64_sub(x,mod),y);
+    //  div = (x - mod) / y;
+    if (f64_lt(f64_mul(y,mod),i64_to_f64(0))){
+        mod =  f64_add(mod,y);
+      //mod += y;
+     // div -= (mrb_float)1.0;
+        div = f64_sub(div,i64_to_f64(1));
     }
   }
 
   if (modp) *modp = mod;
   if (divp) *divp = div;
 }
-
 /* 15.2.9.3.5  */
 /*
  *  call-seq:
@@ -345,7 +433,6 @@ flo_mod(mrb_state *mrb, mrb_value x)
   flodivmod(mrb, mrb_float(x), mrb_to_flo(mrb, y), 0, &mod);
   return mrb_float_value(mrb, mod);
 }
-
 /* 15.2.8.3.16 */
 /*
  *  call-seq:
@@ -375,7 +462,8 @@ flo_eql(mrb_state *mrb, mrb_value x)
 
   mrb_get_args(mrb, "o", &y);
   if (!mrb_float_p(y)) return mrb_false_value();
-  return mrb_bool_value(mrb_float(x) == (mrb_float)mrb_fixnum(y));
+  //return mrb_bool_value(mrb_float(x) == (mrb_float)mrb_fixnum(y));
+  return mrb_bool_value(f64_eq(mrb_float(x),i64_to_f64(mrb_fixnum(y))));
 }
 
 /* 15.2.9.3.7  */
@@ -399,9 +487,11 @@ flo_eq(mrb_state *mrb, mrb_value x)
 
   switch (mrb_type(y)) {
   case MRB_TT_FIXNUM:
-    return mrb_bool_value(mrb_float(x) == (mrb_float)mrb_fixnum(y));
+    //return mrb_bool_value(mrb_float(x) == (mrb_float)mrb_fixnum(y));
+    return mrb_bool_value(f64_eq(mrb_float(x),i64_to_f64(mrb_fixnum(x))));
   case MRB_TT_FLOAT:
-    return mrb_bool_value(mrb_float(x) == mrb_float(y));
+    //return mrb_bool_value(mrb_float(x) == mrb_float(y));
+    return mrb_bool_value(f64_eq(mrb_float(x),mrb_float(y)));
   default:
     return mrb_false_value();
   }
@@ -422,9 +512,11 @@ flo_hash(mrb_state *mrb, mrb_value num)
   size_t i;
   int hash;
 
-  d = (mrb_float)mrb_fixnum(num);
+  d = i64_to_f64(mrb_fixnum(num));
+  //d = (mrb_float)mrb_fixnum(num);
   /* normalize -0.0 to 0.0 */
-  if (d == 0) d = (mrb_float)0.0;
+ // if (d == 0) d = (mrb_float)0.0;
+  if(f64_eq(d,i64_to_f64(0))) d = i64_to_f64(0);
   c = (char*)&d;
   for (hash=0, i=0; i<sizeof(mrb_float);i++) {
     hash = (hash * 971) ^ (unsigned char)c[i];
@@ -465,8 +557,10 @@ flo_infinite_p(mrb_state *mrb, mrb_value num)
 {
   mrb_float value = mrb_float(num);
 
-  if (isinf(value)) {
-    return mrb_fixnum_value(value < 0 ? -1 : 1);
+ // if (isinf(value)) {
+  if(f64_isinf(value)){
+   // return mrb_fixnum_value(value < 0 ? -1 : 1);
+   return mrb_fixnum_value(f64_lt(value,i64_to_f64(0)) ? -1 : 1);
   }
   return mrb_nil_value();
 }
@@ -485,7 +579,8 @@ flo_infinite_p(mrb_state *mrb, mrb_value num)
 static mrb_value
 flo_finite_p(mrb_state *mrb, mrb_value num)
 {
-  return mrb_bool_value(isfinite(mrb_float(num)));
+ // return mrb_bool_value(isfinite(mrb_float(num)));
+  return mrb_bool_value(f64_isfinite(mrb_float(num)));
 }
 
 /* 15.2.9.3.10 */
@@ -504,12 +599,13 @@ flo_finite_p(mrb_state *mrb, mrb_value num)
 static mrb_value
 flo_floor(mrb_state *mrb, mrb_value num)
 {
-  mrb_float f = floor(mrb_float(num));
+  mrb_float f = f64_floor(mrb_float(num));
 
   if (!FIXABLE(f)) {
     return mrb_float_value(mrb, f);
   }
-  return mrb_fixnum_value((mrb_int)f);
+  //return mrb_fixnum_value((mrb_int)f);
+  return mrb_fixnum_value(f64_to_i64(f));
 }
 
 /* 15.2.9.3.8  */
@@ -529,12 +625,13 @@ flo_floor(mrb_state *mrb, mrb_value num)
 static mrb_value
 flo_ceil(mrb_state *mrb, mrb_value num)
 {
-  mrb_float f = ceil(mrb_float(num));
+  mrb_float f = f64_ceil(mrb_float(num));
 
   if (!FIXABLE(f)) {
     return mrb_float_value(mrb, f);
   }
-  return mrb_fixnum_value((mrb_int)f);
+  //return mrb_fixnum_value((mrb_int)f);
+  return mrb_fixnum_value(f64_to_i64(f));
 }
 
 /* 15.2.9.3.12 */
@@ -571,55 +668,76 @@ flo_ceil(mrb_state *mrb, mrb_value num)
 static mrb_value
 flo_round(mrb_state *mrb, mrb_value num)
 {
-  double number, f;
+  //double number, f;
+  float64_t number,f;
   mrb_int ndigits = 0;
   int i;
 
   mrb_get_args(mrb, "|i", &ndigits);
   number = mrb_float(num);
 
-  if (isinf(number)) {
+//  if (isinf(number)) {
+  if(f64_isinf(number)){
     if (0 < ndigits) return num;
-    else mrb_raise(mrb, E_FLOATDOMAIN_ERROR, number < 0 ? "-Infinity" : "Infinity");
+ //   else mrb_raise(mrb, E_FLOATDOMAIN_ERROR, number < 0 ? "-Infinity" : "Infinity");
+    else mrb_raise(mrb, E_FLOATDOMAIN_ERROR, f64_lt(i64_to_f64(0),number)? "-Infinity" : "Infinity");
   }
-  if (isnan(number)) {
+//  if (isnan(number)) {
+  if(f64_isnan(number)){
     if (0 < ndigits) return num;
     else mrb_raise(mrb, E_FLOATDOMAIN_ERROR, "NaN");
   }
 
-  f = 1.0;
+  //f = 1.0;
+  f = i64_to_f64(1);
   i = abs(ndigits);
   while  (--i >= 0)
-    f = f*(mrb_float)10.0;
+  //  f = f*(mrb_float)10.0;
+    f = f64_mul(f,i64_to_f64(10));
 
-  if (isinf(f)) {
-    if (ndigits < 0) number = 0;
+//  if (isinf(f)) {
+  if(f64_isinf(f)){
+    //if (ndigits < 0) number = 0;
+    if(ndigits < 0) number = i64_to_f64(0);
   }
   else {
-    double d;
+    float64_t d;
 
-    if (ndigits < 0) number /= f;
-    else number *= f;
+   // if (ndigits < 0) number /= f;
+    if (ndigits < 0) number = f64_div(number,f);
+    //else number *= f;
+    else number = f64_mul(number,f);
 
     /* home-made inline implementation of round(3) */
-    if (number > 0.0) {
-      d = floor(number);
-      number = d + (number - d >= 0.5);
+    //if (number > 0.0) {
+    if(f64_lt(i64_to_f64(0),number)){
+      //d = floor(number);
+      float64_t buf = {0x3FE0000000000000};
+      d = f64_floor(number);
+      //number = d + (number - d >= 0.5);
+      number = f64_add(d,i64_to_f64(f64_le(buf,f64_sub(number,d))));
     }
-    else if (number < 0.0) {
-      d = ceil(number);
-      number = d - (d - number >= 0.5);
+    //else if (number < 0.0) {
+    else if (f64_lt(number,i64_to_f64(0))){
+      //d = ceil(number);
+      float64_t buf = {0x3FE0000000000000};
+      d = f64_ceil(number);
+      //number = d - (d - number >= 0.5);
+      number = f64_sub(d,i64_to_f64(f64_le(buf,f64_sub(d,number))));
     }
 
-    if (ndigits < 0) number *= f;
-    else number /= f;
+    //if (ndigits < 0) number *= f;
+    if(ndigits < 0) number = f64_mul(number,f);
+    //else number /= f;
+    else number = f64_div(number,f);
   }
 
   if (ndigits > 0) {
-    if (!isfinite(number)) return num;
+    if (!f64_isfinite(number)) return num;
     return mrb_float_value(mrb, number);
   }
-  return mrb_fixnum_value((mrb_int)number);
+  //return mrb_fixnum_value((mrb_int)number);
+  return mrb_fixnum_value(f64_to_i64(number));
 }
 
 /* 15.2.9.3.14 */
@@ -638,19 +756,23 @@ flo_truncate(mrb_state *mrb, mrb_value num)
 {
   mrb_float f = mrb_float(num);
 
-  if (f > (mrb_float)0.0) f = floor(f);
-  if (f < (mrb_float)0.0) f = ceil(f);
+  //if (f > (mrb_float)0.0) f = floor(f);
+  //if (f < (mrb_float)0.0) f = ceil(f);
+  if(f64_lt(i64_to_f64(0),f)) f = f64_floor(f);
+  if(f64_lt(f,i64_to_f64(0))) f = f64_ceil(f);
 
   if (!FIXABLE(f)) {
     return mrb_float_value(mrb, f);
   }
-  return mrb_fixnum_value((mrb_int)f);
+  //return mrb_fixnum_value((mrb_int)f);
+  return mrb_fixnum_value(f64_to_i64(f));
 }
 
 static mrb_value
 flo_nan_p(mrb_state *mrb, mrb_value num)
 {
-  return mrb_bool_value(isnan(mrb_float(num)));
+//  return mrb_bool_value(isnan(mrb_float(num)));
+    return mrb_bool_value(f64_isnan(mrb_float(num)));
 }
 
 /*
@@ -695,13 +817,18 @@ mrb_fixnum_mul(mrb_state *mrb, mrb_value x, mrb_value y)
     b = mrb_fixnum(y);
     if (FIT_SQRT_INT(a) && FIT_SQRT_INT(b))
       return mrb_fixnum_value(a*b);
-    c = a * b;
-    if ((a != 0 && c/a != b) || !FIXABLE(c)) {
-      return mrb_float_value(mrb, (mrb_float)a*(mrb_float)b);
+    //c = a * b;
+    c = f64_mul(i64_to_f64(a),i64_to_f64(b));
+    //if ((a != 0 && c/a != b) || !FIXABLE(c)) {
+    if ((a != 0 && !f64_eq(f64_div(c,i64_to_f64(a)),i64_to_f64(b))) || !FIXABLE(c)) {
+      //return mrb_float_value(mrb, (mrb_float)a*(mrb_float)b);
+      return mrb_float_value(mrb,f64_mul(i64_to_f64(a),i64_to_f64(b)));
     }
-    return mrb_fixnum_value((mrb_int)c);
+    //return mrb_fixnum_value((mrb_int)c);
+    return mrb_fixnum_value(f64_to_i64(c));
   }
-  return mrb_float_value(mrb, (mrb_float)a * mrb_to_flo(mrb, y));
+//  return mrb_float_value(mrb, (mrb_float)a * mrb_to_flo(mrb, y));
+  return mrb_float_value(mrb,f64_mul(i64_to_f64(a),mrb_to_flo(mrb,y)));
 }
 
 /* 15.2.8.3.3  */
@@ -781,7 +908,8 @@ fix_mod(mrb_state *mrb, mrb_value x)
   else {
     mrb_float mod;
 
-    flodivmod(mrb, (mrb_float)a, mrb_to_flo(mrb, y), 0, &mod);
+    //flodivmod(mrb, (mrb_float)a, mrb_to_flo(mrb, y), 0, &mod);
+    flodivmod(mrb, i64_to_f64(a), mrb_to_flo(mrb, y), 0, &mod);
     return mrb_float_value(mrb, mod);
   }
 }
@@ -813,8 +941,10 @@ fix_divmod(mrb_state *mrb, mrb_value x)
     mrb_float div, mod;
     mrb_value a, b;
 
-    flodivmod(mrb, (mrb_float)mrb_fixnum(x), mrb_to_flo(mrb, y), &div, &mod);
-    a = mrb_float_value(mrb, (mrb_int)div);
+   // flodivmod(mrb, (mrb_float)mrb_fixnum(x), mrb_to_flo(mrb, y), &div, &mod);
+    flodivmod(mrb, i64_to_f64(mrb_fixnum(x)), mrb_to_flo(mrb, y), &div, &mod);
+    //a = mrb_float_value(mrb, (mrb_int)div);
+    a = mrb_float_value(mrb,div);
     b = mrb_float_value(mrb, mod);
     return mrb_assoc_new(mrb, a, b);
   }
@@ -830,7 +960,8 @@ flo_divmod(mrb_state *mrb, mrb_value x)
   mrb_get_args(mrb, "o", &y);
 
   flodivmod(mrb, mrb_float(x), mrb_to_flo(mrb, y), &div, &mod);
-  a = mrb_float_value(mrb, (mrb_int)div);
+  //a = mrb_float_value(mrb, (mrb_int)div);
+   a = mrb_float_value(mrb,div);
   b = mrb_float_value(mrb, mod);
   return mrb_assoc_new(mrb, a, b);
 }
@@ -857,7 +988,8 @@ fix_equal(mrb_state *mrb, mrb_value x)
   case MRB_TT_FIXNUM:
     return mrb_bool_value(mrb_fixnum(x) == mrb_fixnum(y));
   case MRB_TT_FLOAT:
-    return mrb_bool_value((mrb_float)mrb_fixnum(x) == mrb_float(y));
+    //return mrb_bool_value((mrb_float)mrb_fixnum(x) == mrb_float(y));
+    return mrb_bool_value(f64_eq(i64_to_f64(mrb_fixnum(x)),mrb_float(y)));
   default:
     return mrb_false_value();
   }
@@ -1049,7 +1181,8 @@ fix_rshift(mrb_state *mrb, mrb_value x)
 static mrb_value
 fix_to_f(mrb_state *mrb, mrb_value num)
 {
-  return mrb_float_value(mrb, (mrb_float)mrb_fixnum(num));
+  //return mrb_float_value(mrb, (mrb_float)mrb_fixnum(num));
+  return mrb_float_value(mrb,i64_to_f64(mrb_fixnum(num)));
 }
 
 /*
@@ -1078,13 +1211,17 @@ mrb_flo_to_fixnum(mrb_state *mrb, mrb_value x)
   else {
     mrb_float d = mrb_float(x);
 
-    if (isinf(d)) {
-      mrb_raise(mrb, E_FLOATDOMAIN_ERROR, d < 0 ? "-Infinity" : "Infinity");
+   // if (isinf(d)) {
+   if(f64_isinf(d)){
+     // mrb_raise(mrb, E_FLOATDOMAIN_ERROR, d < 0 ? "-Infinity" : "Infinity");
+      mrb_raise(mrb, E_FLOATDOMAIN_ERROR, f64_lt(d,i64_to_f64(0)) ? "-Infinity" : "Infinity");
     }
-    if (isnan(d)) {
+   // if (isnan(d)) {
+   if(f64_isnan(d)){
       mrb_raise(mrb, E_FLOATDOMAIN_ERROR, "NaN");
     }
-    z = (mrb_int)d;
+    //z = (mrb_int)d;
+    z = f64_to_i64(d);
   }
   return mrb_fixnum_value(z);
 }
@@ -1101,11 +1238,13 @@ mrb_fixnum_plus(mrb_state *mrb, mrb_value x, mrb_value y)
     if (a == 0) return y;
     b = mrb_fixnum(y);
     if (mrb_int_add_overflow(a, b, &c)) {
-      return mrb_float_value(mrb, (mrb_float)a + (mrb_float)b);
+      //return mrb_float_value(mrb, (mrb_float)a + (mrb_float)b);
+      return mrb_float_value(mrb,f64_add(i64_to_f64(a),i64_to_f64(b)));
     }
     return mrb_fixnum_value(c);
   }
-  return mrb_float_value(mrb, (mrb_float)a + mrb_to_flo(mrb, y));
+  //return mrb_float_value(mrb, (mrb_float)a + mrb_to_flo(mrb, y));
+  return mrb_float_value(mrb,f64_add(i64_to_f64(a),mrb_to_flo(mrb,y)));
 }
 
 /* 15.2.8.3.1  */
@@ -1137,11 +1276,14 @@ mrb_fixnum_minus(mrb_state *mrb, mrb_value x, mrb_value y)
 
     b = mrb_fixnum(y);
     if (mrb_int_sub_overflow(a, b, &c)) {
-      return mrb_float_value(mrb, (mrb_float)a - (mrb_float)b);
+      //return mrb_float_value(mrb, (mrb_float)a - (mrb_float)b);
+       return mrb_float_value(mrb,f64_sub(i64_to_f64(a),i64_to_f64(b)));
     }
     return mrb_fixnum_value(c);
   }
-  return mrb_float_value(mrb, (mrb_float)a - mrb_to_flo(mrb, y));
+//  return mrb_float_value(mrb, (mrb_float)a - mrb_to_flo(mrb, y));
+  return mrb_float_value(mrb,f64_sub(i64_to_f64(a),mrb_to_flo(mrb,y)));
+
 }
 
 /* 15.2.8.3.2  */
@@ -1240,7 +1382,8 @@ num_cmp(mrb_state *mrb, mrb_value self)
   x = mrb_to_flo(mrb, self);
   switch (mrb_type(other)) {
   case MRB_TT_FIXNUM:
-    y = (mrb_float)mrb_fixnum(other);
+    //y = (mrb_float)mrb_fixnum(other);
+    y = i64_to_f64(mrb_fixnum(other));
     break;
   case MRB_TT_FLOAT:
     y = mrb_float(other);
@@ -1248,10 +1391,12 @@ num_cmp(mrb_state *mrb, mrb_value self)
   default:
     return mrb_nil_value();
   }
-  if (x > y)
+  //if (x > y)
+  if(f64_lt(y,x))
     return mrb_fixnum_value(1);
   else {
-    if (x < y)
+    //if (x < y)
+    if(f64_lt(x,y))
       return mrb_fixnum_value(-1);
     return mrb_fixnum_value(0);
   }
@@ -1271,7 +1416,7 @@ flo_plus(mrb_state *mrb, mrb_value x)
   mrb_value y;
 
   mrb_get_args(mrb, "o", &y);
-  return mrb_float_value(mrb, mrb_float(x) + mrb_to_flo(mrb, y));
+  return mrb_float_value(mrb, f64_add(mrb_float(x),mrb_to_flo(mrb, y)));
 }
 
 /* ------------------------------------------------------------------------*/

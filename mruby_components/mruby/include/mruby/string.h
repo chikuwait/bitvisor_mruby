@@ -73,7 +73,7 @@ mrb_int mrb_str_strlen(mrb_state*, struct RString*);
 #define MRB_STR_EMBED     4
 #define MRB_STR_EMBED_LEN_MASK 0xf8
 #define MRB_STR_EMBED_LEN_SHIFT 3
-
+float64_t strtof64(const char *nptr, char **endptr);
 void mrb_gc_free_str(mrb_state*, struct RString*);
 MRB_API void mrb_str_modify(mrb_state*, struct RString*);
 MRB_API void mrb_str_concat(mrb_state*, mrb_value, mrb_value);
@@ -91,7 +91,7 @@ MRB_API const char *mrb_string_value_ptr(mrb_state *mrb, mrb_value ptr);
 MRB_API mrb_value mrb_str_dup(mrb_state *mrb, mrb_value str);
 MRB_API mrb_value mrb_str_intern(mrb_state *mrb, mrb_value self);
 MRB_API mrb_value mrb_str_to_inum(mrb_state *mrb, mrb_value str, mrb_int base, mrb_bool badcheck);
-MRB_API double mrb_str_to_dbl(mrb_state *mrb, mrb_value str, mrb_bool badcheck);
+MRB_API float64_t mrb_str_to_dbl(mrb_state *mrb, mrb_value str, mrb_bool badcheck);
 MRB_API mrb_value mrb_str_to_str(mrb_state *mrb, mrb_value str);
 MRB_API mrb_bool mrb_str_equal(mrb_state *mrb, mrb_value str1, mrb_value str2);
 MRB_API mrb_value mrb_str_cat(mrb_state *mrb, mrb_value str, const char *ptr, size_t len);

@@ -24,7 +24,7 @@ mrb_obj_eq(mrb_state *mrb, mrb_value v1, mrb_value v2)
     return (mrb_symbol(v1) == mrb_symbol(v2));
 
   case MRB_TT_FLOAT:
-    return (mrb_float(v1) == mrb_float(v2));
+    return (f64_eq(mrb_float(v1),mrb_float(v2)));
 
   default:
     return (mrb_ptr(v1) == mrb_ptr(v2));
@@ -573,7 +573,7 @@ mrb_Float(mrb_state *mrb, mrb_value val)
   }
   switch (mrb_type(val)) {
     case MRB_TT_FIXNUM:
-      return mrb_float_value(mrb, (mrb_float)mrb_fixnum(val));
+      return mrb_float_value(mrb, i64_to_f64(mrb_fixnum(val)));
 
     case MRB_TT_FLOAT:
       return val;

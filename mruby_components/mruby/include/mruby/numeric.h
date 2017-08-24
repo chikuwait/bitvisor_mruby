@@ -11,10 +11,11 @@
 extern "C" {
 #endif
 
-#define POSFIXABLE(f) ((f) <= MRB_INT_MAX)
-#define NEGFIXABLE(f) ((f) >= MRB_INT_MIN)
+#define POSFIXABLE(f) (f64_le(f,i64_to_f64(MRB_INT_MAX)))
+//#define NEGFIXABLE(f) ((f) >= MRB_INT_MIN)
+#define NEGFIXABLE(f) (f64_le(i64_to_f64(MRB_INT_MIN),(f)))
 #define FIXABLE(f) (POSFIXABLE(f) && NEGFIXABLE(f))
-
+float64_t f64_pow(float64_t a,float64_t b);
 MRB_API mrb_value mrb_flo_to_fixnum(mrb_state *mrb, mrb_value val);
 MRB_API mrb_value mrb_fixnum_to_str(mrb_state *mrb, mrb_value x, int base);
 MRB_API mrb_float mrb_to_flo(mrb_state *mrb, mrb_value x);
