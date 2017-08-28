@@ -28,7 +28,7 @@
 #include "mruby/error.h"
 #include "node.h"
 #include "mrb_throw.h"
-
+#include "mruby/string.h"
 #define YYLEX_PARAM p
 
 typedef mrb_ast_node node;
@@ -4774,12 +4774,12 @@ parser_yylex(parser_state *p)
     }
     tokfix(p);
     if (is_float) {
-      double d;
+      float64_t d;
       char *endp;
-
       errno = 0;
-      d = strtod(tok(p), &endp);
-      if (d == 0 && endp == tok(p)) {
+      d = strtof64(tok(p), &endp);
+      printf("%lx\n",(int64_t)d.v);
+      if (f64_eq(d,i64_to_f64(0)) && endp == tok(p)) {
         yywarning_s(p, "corrupted float value %s", tok(p));
       }
       else if (errno == ERANGE) {

@@ -31,11 +31,11 @@
 static float64_t NAN = {0xFFFFFFFFFFFFFFFF};
 static float64_t INFINITY = {0x7FF0000000000000};
 static float64_t FLO_EPSILON = {0x3E112E0BE826D695};
-
+#define isNaNF64UI( a ) (((~(a) & UINT64_C( 0x7FF0000000000000 )) == 0) && ((a) & UINT64_C( 0x000FFFFFFFFFFFFF )))
 static int
 f64_isnan(float64_t f)
 {
-    return f64_isSignalingNaN(f);
+    return isNaNF64UI(f.v);
 }
 static int
 f64_isinf (float64_t f) {

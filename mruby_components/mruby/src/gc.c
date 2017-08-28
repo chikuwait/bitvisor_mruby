@@ -122,11 +122,11 @@ typedef struct {
 #include <stdio.h>
 #include <sys/time.h>
 
-static double program_invoke_time = 0;
-static double gc_time = 0;
-static double gc_total_time = 0;
+static float64_t program_invoke_time = 0;
+static float64_t gc_time = 0;
+static float64_t gc_total_time = 0;
 
-static double
+static float64_t
 gettimeofday_time(void)
 {
   struct timeval tv;
@@ -377,9 +377,10 @@ gc_protect(mrb_state *mrb, struct RBasic *p)
 #else
   if (mrb->arena_idx >= mrb->arena_capa) {
     /* extend arena */
-    float32_t capa = i32_to_f32(mrb->arena_capa);
-    float32_t a = {0x3FC00000};
-    mrb->arena_capa = f32_to_i32(f32_mul(capa, a),softfloat_round_near_even,true);
+   float32_t capa = i32_to_f32(mrb->arena_capa);
+   float32_t a = {0x3FC00000};
+   mrb->arena_capa = f32_to_i32(f32_mul(capa, a),softfloat_round_near_even,true);
+   // mrb->arena_capa = (int)(mrb->arena_capa * 3 / 2);
     mrb->arena = (struct RBasic**)mrb_realloc(mrb, mrb->arena, sizeof(struct RBasic*)*mrb->arena_capa);
   }
 #endif

@@ -46,82 +46,271 @@ mrb_str_strlen(mrb_state *mrb, struct RString *s)
   return max;
 }
 
+/*
+ *	Source code for the "strtod" library procedure.
+ *
+ * Copyright (c) 1988-1993 The Regents of the University of California.
+ * Copyright (c) 1994 Sun Microsystems, Inc.
+ *
+ * Permission to use, copy, modify, and distribute this
+ * software and its documentation for any purpose and without
+ * fee is hereby granted, provided that the above copyright
+ * notice appear in all copies.  The University of California
+ * makes no representations about the suitability of this
+ * software for any purpose.  It is provided "as is" without
+ * express or implied warranty.
+ *
+ * RCS: @(#) $Id: strtod.c 11708 2007-02-12 23:01:19Z shyouhei $
+ */
+
+#include <ctype.h>
+#include <errno.h>
+
+static const int maxExponent = 511; /* Largest possible base 10 exponent.  Any
+                                     * exponent larger than this will already
+                                     * produce underflow or overflow, so there's
+                                     * no need to worry about additional digits.
+                                     */
+static const float64_t powersOf10[] = {/* Table giving binary powers of 10.  Entry */
+                                      /* is 10^2^i.  Used to convert decimal */
+                                      /* exponents into floating-point numbers. */
+#ifdef MRB_USE_FLOAT
+    {0x41200000}, /* 10.0    */
+    {0x42c80000}, /* 100.0   */
+    {0x461c4000}, /* 1.0e4   */
+    {0x4cbebc20}, /* 1.0e8   */
+    {0x5a0e1bc9}, /* 1.0e16  */
+    {0x749dc5ad}, /* 1.0e32  */
+    {0x29c2781f}, /* 1.0e64  */
+    {0x1413ba47}, /* 1.0e128 */
+    {0x68aa7eeb}  /* 1.0e256 */
+#else
+    {0x4024000000000000},
+    {0x4059000000000000},
+    {0x40c3880000000000},
+    {0x4197d78400000000},
+    {0x4341c37937e08000},
+    {0x4693b8b5b5056e17},
+    {0x4d384f03e93ff9f5},
+    {0x5a827748f9301d32},
+    {0x75154fdd7f73bf3c}
+#endif
+};
+
 float64_t
-strtof64(const char *nptr, char **endptr)
+strtof64(const char *string, char **endPtr)
+/*  const char *string;		   A decimal ASCII floating-point number,
+				 * optionally preceded by white space.
+				 * Must have form "-I.FE-X", where I is the
+				 * integer part of the mantissa, F is the
+				 * fractional part of the mantissa, and X
+				 * is the exponent.  Either of the signs
+				 * may be "+", "-", or omitted.  Either I
+				 * or F may be omitted, or both.  The decimal
+				 * point isn't necessary unless F is present.
+				 * The "E" may actually be an "e".  E and X
+				 * may both be omitted (but not just one).
+				 */
+/*  char **endPtr;		   If non-NULL, store terminating character's
+				 * address here. */
 {
-  float64_t result;
-  float64_t d = {0};
-  int16_t e=0;
-  int8_t i=0,npos=0;
-  int64_t nlog=10;
-  char c=nptr[0];
-  int8_t k;
-  bool stop = false;
-  bool neg = false;
-  int8_t nexp = 0;
-  bool sexp = false;
-  float64_t large;
+    int sign, expSign = FALSE;
+    float64_t fraction, dblExp;
+    const float64_t *d;
+    register const char *p;
+    register int c;
+    int exp = 0;		/* Exponent read from "EX" field. */
+    int fracExp = 0;		/* Exponent that derives from the fractional
+				 * part.  Under normal circumstatnces, it is
+				 * the negative of the number of digits in F.
+				 * However, if I is very long, the last digits
+				 * of I get dropped (otherwise a long I with a
+				 * large negative exponent could cause an
+				 * unnecessary overflow on I alone).  In this
+				 * case, fracExp is incremented one for each
+				 * dropped digit. */
+    int mantSize;		/* Number of digits in mantissa. */
+    int decPt;			/* Number of mantissa digits BEFORE decimal
+				 * point. */
+    const char *pExp;		/* Temporarily holds location of exponent
+				 * in string. */
 
-  for(i=0;c&&!stop;i++){
-    c=nptr[i];
-    k=c<'A'?c-'0':c-'A'+10;
-    switch(c){
-    case 'A' ... 'F': //accept hex as well
-    case '0' ... '9':
-      if(nexp){ /* exponent */
-	e *= 10;
-	e += k;
-	nexp++;
-      }
-      else if(npos>=0){ /* before the point */
-	d = f64_mul(d,i32_to_f64(10));
-	d = f64_add(d,i32_to_f64(k));
-	npos++;
-      }
-      else{ /* after the point */
-	d = f64_add(d, f64_div(i32_to_f64(k),i64_to_f64(nlog)) );
-	npos--;
-	nlog*=10;
-      }
-      break;
-    case '.':
-      if(npos>=0){
-	npos=-1;
-      }
-      break;
-    case '-':
-      if(nexp)sexp=true;
-      else neg=true;
-      break;
-    case EXPCHAR:
-      nexp=1;
-      break;
-    case '_': /* placeholders that does nothing */
-    case '+':
-      continue;
-    default:
-      stop = true;
-      break;
+    /*
+     * Strip off leading blanks and check for a sign.
+     */
+
+    p = string;
+    while (isspace(*p)) {
+	p += 1;
     }
-  }
+    if (*p == '-') {
+	sign = TRUE;
+	p += 1;
+    }
+    else {
+	if (*p == '+') {
+	    p += 1;
+	}
+	sign = FALSE;
+    }
 
-  large=f64_pow(i64_to_f64(15),i64_to_f64(10)); //can't go to 16 in hex mode
-  large=f64_mul(large,i32_to_f64(10)); //large=ibase^16
-  if(sexp){ // multiply exponent in
-    while(e>=16){ d=f64_div(d,large); e-=16;}
-    while(e--) d=f64_div(d,i32_to_f64(10));
-  }
-  else{
-    while(e>=16){ d=f64_mul(d,large);e-=16;}
-    while(e--) d=f64_mul(d,i32_to_f64(10));
-  }
+    /*
+     * Count the number of digits in the mantissa (including the decimal
+     * point), and also locate the decimal point.
+     */
 
-  if(endptr)*endptr += i;
-  if(!neg)result = d;
-  else result = f64_mul(d,i32_to_f64(-1));
+    decPt = -1;
+    for (mantSize = 0; ; mantSize += 1)
+    {
+	c = *p;
+	if (!isdigit(c)) {
+	    if ((c != '.') || (decPt >= 0)) {
+		break;
+	    }
+	    decPt = mantSize;
+	}
+	p += 1;
+    }
 
-  return result;
+    /*
+     * Now suck up the digits in the mantissa.  Use two integers to
+     * collect 9 digits each (this is faster than using floating-point).
+     * If the mantissa has more than 18 digits, ignore the extras, since
+     * they can't affect the value anyway.
+     */
+
+    pExp  = p;
+    p -= mantSize;
+    if (decPt < 0) {
+	decPt = mantSize;
+    }
+    else {
+	mantSize -= 1;			/* One of the digits was the point. */
+    }
+    if (mantSize > 18) {
+	if (decPt - 18 > 29999) {
+	    fracExp = 29999;
+	}
+        else {
+	    fracExp = decPt - 18;
+	}
+	mantSize = 18;
+    }
+    else {
+	fracExp = decPt - mantSize;
+    }
+    if (mantSize == 0) {
+	fraction = i64_to_f64(0);
+	p = string;
+	goto done;
+    }
+    else {
+	int frac1, frac2;
+    float64_t t;
+	frac1 = 0;
+	for ( ; mantSize > 9; mantSize -= 1)
+	{
+	    c = *p;
+	    p += 1;
+	    if (c == '.') {
+		c = *p;
+		p += 1;
+	    }
+	    frac1 = 10*frac1 + (c - '0');
+	}
+	frac2 = 0;
+	for (; mantSize > 0; mantSize -= 1)
+	{
+	    c = *p;
+	    p += 1;
+	    if (c == '.') {
+		c = *p;
+		p += 1;
+	    }
+	    frac2 = 10*frac2 + (c - '0');
+	}
+#ifdef MRB_USE_FLOAT
+        t.v = 0x4e6e6b28;
+#else
+        t.v = 0x41cdcd6500000000;
+#endif
+	fraction = f64_add(f64_mul(t, i64_to_f64(frac1)), i64_to_f64(frac2));
+    }
+
+    /*
+     * Skim off the exponent.
+     */
+
+    p = pExp;
+    if ((*p == 'E') || (*p == 'e')) {
+	p += 1;
+	if (*p == '-') {
+	    expSign = TRUE;
+	    p += 1;
+	}
+        else {
+	    if (*p == '+') {
+		p += 1;
+	    }
+	    expSign = FALSE;
+	}
+	while (isdigit(*p)) {
+	    exp = exp * 10 + (*p - '0');
+	    if (exp > 19999) {
+		exp = 19999;
+	    }
+	    p += 1;
+	}
+    }
+    if (expSign) {
+	exp = fracExp - exp;
+    }
+    else {
+	exp = fracExp + exp;
+    }
+
+    /*
+     * Generate a floating-point number that represents the exponent.
+     * Do this by processing the exponent one bit at a time to combine
+     * many powers of 2 of 10. Then combine the exponent with the
+     * fraction.
+     */
+
+    if (exp < 0) {
+	expSign = TRUE;
+	exp = -exp;
+    }
+    else {
+	expSign = FALSE;
+    }
+    if (exp > maxExponent) {
+	exp = maxExponent;
+	errno = ERANGE;
+    }
+    dblExp = i64_to_f64(1);
+    for (d = powersOf10; exp != 0; exp >>= 1, d += 1) {
+	if (exp & 01) {
+            dblExp = f64_mul(dblExp, *d);
+	}
+    }
+    if (expSign) {
+        fraction = f64_div(fraction, dblExp);
+    }
+    else {
+        fraction = f64_mul(fraction, dblExp);
+    }
+
+done:
+    if (endPtr != NULL) {
+	*endPtr = (char *) p;
+    }
+
+    if (sign) {
+        return f64_mul(fraction, i64_to_f64(-1));
+    }
+    return fraction;
 }
+
 static inline void
 resize_capa(mrb_state *mrb, struct RString *s, mrb_int capacity)
 {
@@ -2217,6 +2406,7 @@ mrb_str_to_dbl(mrb_state *mrb, mrb_value str, mrb_bool badcheck)
 
   str = mrb_str_to_str(mrb, str);
   s = RSTRING_PTR(str);
+  printf("%s\n",s);
   len = RSTRING_LEN(str);
   if (s) {
     if (badcheck && memchr(s, '\0', len)) {
