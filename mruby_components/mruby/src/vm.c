@@ -1895,7 +1895,7 @@ RETRY_TRY_BLOCK:
           mrb_float x = mrb_float(regs[a]);
           mrb_int y = mrb_fixnum(regs[a+1]);
          // SET_FLOAT_VALUE(mrb, regs[a], x / y);
-          SET_FLOAT_VALUE(mrb, regs[a], f64_add(x,y);
+          SET_FLOAT_VALUE(mrb, regs[a], f64_div(x,y);
         }
 #else
         OP_MATH_BODY_F64_I64(f64_div,mrb_float,mrb_fixnum);
