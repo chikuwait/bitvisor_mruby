@@ -680,7 +680,7 @@ flo_round(mrb_state *mrb, mrb_value num)
   if(f64_isinf(number)){
     if (0 < ndigits) return num;
  //   else mrb_raise(mrb, E_FLOATDOMAIN_ERROR, number < 0 ? "-Infinity" : "Infinity");
-    else mrb_raise(mrb, E_FLOATDOMAIN_ERROR, f64_lt(i64_to_f64(0),number)? "-Infinity" : "Infinity");
+    else mrb_raise(mrb, E_FLOATDOMAIN_ERROR, f64_lt(number,i64_to_f64(0))? "-Infinity" : "Infinity");
   }
 //  if (isnan(number)) {
   if(f64_isnan(number)){
