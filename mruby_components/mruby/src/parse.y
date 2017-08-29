@@ -4778,7 +4778,6 @@ parser_yylex(parser_state *p)
       char *endp;
       errno = 0;
       d = strtof64(tok(p), &endp);
-      printf("%lx\n",(int64_t)d.v);
       if (f64_eq(d,i64_to_f64(0)) && endp == tok(p)) {
         yywarning_s(p, "corrupted float value %s", tok(p));
       }

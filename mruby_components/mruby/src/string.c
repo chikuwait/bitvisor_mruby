@@ -2406,7 +2406,6 @@ mrb_str_to_dbl(mrb_state *mrb, mrb_value str, mrb_bool badcheck)
 
   str = mrb_str_to_str(mrb, str);
   s = RSTRING_PTR(str);
-  printf("%s\n",s);
   len = RSTRING_LEN(str);
   if (s) {
     if (badcheck && memchr(s, '\0', len)) {
