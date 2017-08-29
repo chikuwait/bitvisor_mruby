@@ -26,11 +26,11 @@
 #define FLO_MAX_SIGN_LENGTH 10
 //#define FLO_EPSILON DBL_EPSILON
 #endif
-#define f64_to_i64(x) f64_to_i64((x), softfloat_round_near_even, 1)
+#define f64_to_i64(x) f64_to_i64((x), softfloat_round_min, 1)
 #define f64_signbit(f)((f.v>>63))
 static float64_t NAN = {0xFFFFFFFFFFFFFFFF};
 static float64_t INFINITY = {0x7FF0000000000000};
-static float64_t FLO_EPSILON = {0x3E112E0BE826D695};
+//static float64_t FLO_EPSILON = {0x3E112E0BE826D695};
 #define isNaNF64UI( a ) (((~(a) & UINT64_C( 0x7FF0000000000000 )) == 0) && ((a) & UINT64_C( 0x000FFFFFFFFFFFFF )))
 static int
 f64_isnan(float64_t f)
