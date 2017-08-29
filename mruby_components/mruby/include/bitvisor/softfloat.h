@@ -49,7 +49,6 @@ SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <stdbool.h>
 #include <stdint.h>
 #include "softfloat_types.h"
-
 #ifndef THREAD_LOCAL
 #define THREAD_LOCAL
 #endif
