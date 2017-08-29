@@ -36,11 +36,11 @@ struct mrb_state;
 #include "bitvisor/softfloat.h"
 #if defined(MRB_USE_FLOAT)
   typedef uint32_t mrb_float;
-# define mrb_float_to_str(buf, i) sprintf(buf, "%.7e", i)
+//# define mrb_float_to_str(buf, i) sprintf(buf, "%.7e", i)
 # define str_to_mrb_float(buf) strtof(buf, NULL)
 #else
   typedef float64_t mrb_float;
-# define mrb_float_to_str(buf, i) sprintf(buf, "%.16e", i)
+//# define mrb_float_to_str(buf, i) sprintf(buf, "%.16e", i)
 # define str_to_mrb_float(buf) strtof64(buf, NULL)
 #endif
 

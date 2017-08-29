@@ -19,7 +19,18 @@ float64_t f64_pow(float64_t a,float64_t b);
 MRB_API mrb_value mrb_flo_to_fixnum(mrb_state *mrb, mrb_value val);
 MRB_API mrb_value mrb_fixnum_to_str(mrb_state *mrb, mrb_value x, int base);
 MRB_API mrb_float mrb_to_flo(mrb_state *mrb, mrb_value x);
-
+static int f64_isinf(float64_t f);
+static int f64_isnan(float64_t f);
+static float64_t f64_floor(float64_t f);
+static float64_t f64_log10(float64_t f);
+static float64_t f64_log(float64_t f);
+static float64_t f64_ceil(float64_t f);
+static float64_t FLO_EPSILON = {0x3E112E0BE826D695};
+#define FLO_MAX_DIGITS 14
+#define FLO_MAX_SIGN_LENGTH 10
+#define f64_to_i64(x) f64_to_i64((x),softfloat_round_min,1);
+#define f64_signbit(f)((f.v>>63))
+#define isNaNF64UI( a ) (((~(a) & UINT64_C( 0x7FF0000000000000 )) == 0) && ((a) & UINT64_C( 0x000FFFFFFFFFFFFF )))
 mrb_value mrb_fixnum_plus(mrb_state *mrb, mrb_value x, mrb_value y);
 mrb_value mrb_fixnum_minus(mrb_state *mrb, mrb_value x, mrb_value y);
 mrb_value mrb_fixnum_mul(mrb_state *mrb, mrb_value x, mrb_value y);

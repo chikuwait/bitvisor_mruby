@@ -7,6 +7,8 @@
 #include <ctype.h>
 #include <string.h>
 #include <limits.h>
+#include <stdlib.h>
+#include <bitvisor/softfloat.h>
 #include "mruby/dump.h"
 #include "mruby/string.h"
 #include "mruby/irep.h"
@@ -23,6 +25,200 @@ static size_t get_irep_record_size_1(mrb_state *mrb, mrb_irep *irep);
 #if UINT32_MAX > SIZE_MAX
 # error This code cannot be built on your environment.
 #endif
+
+static int
+f64_isnan(float64_t f)
+{
+    return isNaNF64UI(f.v);
+}
+
+static int
+f64_isinf (float64_t f) {
+  if (((f.v>>52) & 0x7FF) == 0x7FF){
+    return 1;
+  }
+  if (((f.v>>52)& 0xFFF) == 0xFFF){
+    return -1;
+  }
+  return 0;
+}
+
+static float64_t
+f64_floor (float64_t f) {
+    return f64_roundToInt(f,softfloat_round_min,0);
+}
+static float64_t
+f64_ceil (float64_t f) {
+  return f64_roundToInt(f,softfloat_round_max,0);
+}
+
+float64_t
+f64_log(float64_t arg)
+{
+    float64_t integral = {0};
+    int n = 50000;
+    float64_t dx = f64_div(f64_sub(arg,ui32_to_f64(1)),ui32_to_f64(n));
+    if(f64_lt(arg,ui32_to_f64(1))) return i32_to_f64(-1);
+
+    for(int i = 1 ; i-1 < n;i++){
+        integral = f64_add(integral,f64_div(ui32_to_f64(1),f64_add(f64_mul(ui32_to_f64(i),dx),ui32_to_f64(1))));
+    }
+    integral = f64_add(integral,f64_div(ui32_to_f64(1),ui32_to_f64(2)));
+    integral = f64_add(integral,f64_div(ui32_to_f64(1),arg));
+    integral = f64_mul(integral,dx);
+    return integral;
+}
+
+
+float64_t
+f64_log10(float64_t arg)
+{
+
+    float64_t ex = f64_log(arg);
+    float64_t e10 = f64_log(i32_to_f64(10));
+    return f64_div(ex,e10);
+}
+
+static int
+mrb_float_to_str(char* buf, mrb_float flo)
+{
+  float64_t n = flo;
+  int max_digits = FLO_MAX_DIGITS;
+
+  if(f64_isnan(n)){
+      strcpy(buf,"NaN");
+    return 3;
+  }
+  else if(f64_isinf(n)){
+    if (f64_lt(n,i64_to_f64(0))){
+        strcpy(buf,"-inf");
+      return 4;
+    }
+    else {
+        strcpy(buf,"inf");
+        return 3;
+    }
+  }
+  else {
+    int digit;
+    int m = 0;
+    int exp;
+    mrb_bool e = FALSE;
+    char s[48];
+    char *c = &s[0];
+    int length = 0;
+
+    if (f64_signbit(n)) {
+      n = f64_mul(n, i64_to_f64(-1));
+      *(c++) = '-';
+    }
+    if (!f64_eq(n,i64_to_f64(0))) {
+      if(!f64_lt(i64_to_f64(1),n)){
+        exp = (int)f64_to_i64(f64_floor(f64_log10(n)));
+      }
+      else {
+          exp = (int)f64_to_i64(f64_mul(f64_ceil(f64_mul(f64_log10(n),i64_to_f64(-1))),i64_to_f64(-1)));
+      }
+    }
+    else {
+      exp = 0;
+    }
+
+    /* preserve significands */
+    if (exp < 0) {
+      int i, beg = -1, end = 0;
+      float64_t f = n;
+      float64_t fd = {0};
+
+      for (i = 0; i < FLO_MAX_DIGITS; ++i) {
+          f = f64_mul(f64_sub(f,fd),i64_to_f64(10));
+          fd = f64_floor(f64_add(f,FLO_EPSILON));
+        if (!f64_eq(fd,i64_to_f64(0))) {
+          if (beg < 0) beg = i;
+          end = i + 1;
+        }
+      }
+      if (beg >= 0) length = end - beg;
+      if (length > FLO_MAX_SIGN_LENGTH) length = FLO_MAX_SIGN_LENGTH;
+    }
+
+    if (abs(exp) + length >= FLO_MAX_DIGITS) {
+      /* exponent representation */
+      e = TRUE;
+      n = f64_div(n,f64_pow(i64_to_f64(10),i64_to_f64(exp)));
+      if (f64_isinf(n)) {
+        if (s < c) {            /* s[0] == '-' */
+          strcpy(buf,"-0.0");
+          return 4;
+        }
+        else {
+          strcpy(buf,"0.0");
+          return 3;
+        }
+      }
+    }
+    else {
+      /* un-exponent (normal) representation */
+      if (exp > 0) {
+        m = exp;
+      }
+    }
+
+    /* puts digits */
+    while (max_digits >= 0) {
+      float64_t weight = (m < 0) ? i64_to_f64(0) : f64_pow(i64_to_f64(10),i64_to_f64(m));
+      float64_t fdigit = (m < 0) ? f64_mul(n,i64_to_f64(10)) : f64_div(n,weight);
+      if(f64_lt(fdigit,i64_to_f64(0))) fdigit = n = i64_to_f64(0);
+      if(m < -1 && f64_lt(fdigit,FLO_EPSILON)){
+        if (e || exp > 0 || m <= -abs(exp)) {
+          break;
+        }
+      }
+      digit = f64_to_i64(f64_floor(f64_add(fdigit,FLO_EPSILON)));
+      if (m == 0 && digit > 9) {
+        n = f64_div(n,i64_to_f64(10));
+        exp++;
+        continue;
+      }
+      *(c++) = '0' + digit;
+      n = (m < 0) ? f64_sub(f64_mul(n,i64_to_f64(10)),i64_to_f64(digit)) : f64_sub(n,f64_mul(i64_to_f64(digit),weight));
+      max_digits--;
+      if (m-- == 0) {
+        *(c++) = '.';
+      }
+    }
+    if (c[-1] == '0') {
+      while (&s[0] < c && c[-1] == '0') {
+        c--;
+      }
+      c++;
+    }
+
+    if (e) {
+      *(c++) = 'e';
+      if (exp > 0) {
+        *(c++) = '+';
+      }
+      else {
+        *(c++) = '-';
+        exp = -exp;
+      }
+
+      if (exp >= 100) {
+        *(c++) = '0' + exp / 100;
+        exp -= exp / 100 * 100;
+      }
+
+      *(c++) = '0' + exp / 10;
+      *(c++) = '0' + exp % 10;
+    }
+
+    *c = '\0';
+    strcpy(buf,s);
+//    return mrb_str_new(mrb, &s[0], c - &s[0]);
+    return c -&s[0];
+  }
+}
 
 static size_t
 write_padding(uint8_t *buf)
