@@ -1699,7 +1699,6 @@ RETRY_TRY_BLOCK:
           x = mrb_fixnum(regs_a[0]);
           y = mrb_fixnum(regs_a[1]);
           if (mrb_int_add_overflow(x, y, &z)) {
-            //SET_FLOAT_VALUE(mrb, regs_a[0], (mrb_float)x + (mrb_float)y);
             SET_FLOAT_VALUE(mrb, regs_a[0],f64_add(i64_to_f64(x),i64_to_f64(y)));
             break;
           }
@@ -1710,7 +1709,6 @@ RETRY_TRY_BLOCK:
         {
           mrb_int x = mrb_fixnum(regs[a]);
           mrb_float y = mrb_float(regs[a+1]);
-         // SET_FLOAT_VALUE(mrb, regs[a], (mrb_float)x + y);
           SET_FLOAT_VALUE(mrb, regs[a],f64_add(i64_to_f64(x),y));
         }
         break;
@@ -1759,7 +1757,6 @@ RETRY_TRY_BLOCK:
           x = mrb_fixnum(regs[a]);
           y = mrb_fixnum(regs[a+1]);
           if (mrb_int_sub_overflow(x, y, &z)) {
-          //  SET_FLOAT_VALUE(mrb, regs[a], (mrb_float)x - (mrb_float)y);
             SET_FLOAT_VALUE(mrb, regs[a],f64_sub(i64_to_f64(x),i64_to_f64(y)));
             break;
           }
@@ -1770,7 +1767,6 @@ RETRY_TRY_BLOCK:
         {
           mrb_int x = mrb_fixnum(regs[a]);
           mrb_float y = mrb_float(regs[a+1]);
-          //SET_FLOAT_VALUE(mrb, regs[a], (mrb_float)x - y);
           SET_FLOAT_VALUE(mrb, regs[a],f64_sub(i64_to_f64(x),y));
         }
         break;
@@ -1835,7 +1831,6 @@ RETRY_TRY_BLOCK:
         {
           mrb_int x = mrb_fixnum(regs[a]);
           mrb_float y = mrb_float(regs[a+1]);
-    //      SET_FLOAT_VALUE(mrb, regs[a], (mrb_float)x * y);
           SET_FLOAT_VALUE(mrb, regs[a],f64_mul(i64_to_f64(x),y));
         }
         break;
@@ -1877,7 +1872,6 @@ RETRY_TRY_BLOCK:
         {
           mrb_int x = mrb_fixnum(regs[a]);
           mrb_int y = mrb_fixnum(regs[a+1]);
-         // SET_FLOAT_VALUE(mrb, regs[a], (mrb_float)x / (mrb_float)y);
          SET_FLOAT_VALUE(mrb, regs[a], f64_div(i64_to_f64(x),i64_to_f64(y)));
         }
         break;
@@ -1885,7 +1879,6 @@ RETRY_TRY_BLOCK:
         {
           mrb_int x = mrb_fixnum(regs[a]);
           mrb_float y = mrb_float(regs[a+1]);
-//          SET_FLOAT_VALUE(mrb, regs[a], (mrb_float)x / y);
           SET_FLOAT_VALUE(mrb, regs[a], f64_div(i64_to_f64(x),y));
         }
         break;
@@ -1894,7 +1887,6 @@ RETRY_TRY_BLOCK:
         {
           mrb_float x = mrb_float(regs[a]);
           mrb_int y = mrb_fixnum(regs[a+1]);
-         // SET_FLOAT_VALUE(mrb, regs[a], x / y);
           SET_FLOAT_VALUE(mrb, regs[a], f64_div(x,y);
         }
 #else
@@ -1936,7 +1928,6 @@ RETRY_TRY_BLOCK:
           mrb_int z;
 
           if (mrb_int_add_overflow(x, y, &z)) {
-            //SET_FLOAT_VALUE(mrb, regs[a], (mrb_float)x + (mrb_float)y);
               SET_FLOAT_VALUE(mrb, regs[a], f64_add(i64_to_f64(x),i64_to_f64(y)));
             break;
           }
@@ -1950,7 +1941,6 @@ RETRY_TRY_BLOCK:
           SET_FLOAT_VALUE(mrb, regs[a], x + GETARG_C(i));
         }
 #else
-       // mrb_float(regs[a]) += GETARG_C(i);
         mrb_float(regs[a]) = f64_add(mrb_float(regs[a]),i64_to_f64(GETARG_C(i)));
 #endif
         break;
@@ -1976,7 +1966,6 @@ RETRY_TRY_BLOCK:
           mrb_int z;
 
           if (mrb_int_sub_overflow(x, y, &z)) {
-           // SET_FLOAT_VALUE(mrb, regs_a[0], (mrb_float)x - (mrb_float)y);
             SET_FLOAT_VALUE(mrb, regs[0], f64_sub(i64_to_f64(x),i64_to_f64(y)));
           }
           else {
@@ -1991,7 +1980,6 @@ RETRY_TRY_BLOCK:
           SET_FLOAT_VALUE(mrb, regs[a], x - GETARG_C(i));
         }
 #else
-        //mrb_float(regs_a[0]) -= GETARG_C(i);
         mrb_float(regs_a[0]) = f64_sub(mrb_float(regs_a[0]),i64_to_f64(GETARG_C(i)));
 #endif
         break;

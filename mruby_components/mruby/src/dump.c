@@ -215,7 +215,6 @@ mrb_float_to_str(char* buf, mrb_float flo)
 
     *c = '\0';
     strcpy(buf,s);
-//    return mrb_str_new(mrb, &s[0], c - &s[0]);
     return c -&s[0];
   }
 }

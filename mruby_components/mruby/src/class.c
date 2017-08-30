@@ -641,7 +641,6 @@ mrb_get_args(mrb_state *mrb, const char *format, ...)
                 if (!FIXABLE(f)) {
                   mrb_raise(mrb, E_RANGE_ERROR, "float too big for int");
                 }
-               // *p = (mrb_int)f;
                *p = f64_to_i64(f);
               }
               break;

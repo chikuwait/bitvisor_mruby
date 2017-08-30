@@ -377,9 +377,8 @@ gc_protect(mrb_state *mrb, struct RBasic *p)
 #else
   if (mrb->arena_idx >= mrb->arena_capa) {
     /* extend arena */
-   float64_t capa = i64_to_f64(mrb->arena_capa);
-   mrb->arena_capa = f64_to_i64(f64_div(f64_mul(capa, i64_to_f64(3)),i64_to_f64(2)),softfloat_round_near_even,true);
-   // mrb->arena_capa = (int)(mrb->arena_capa * 3 / 2);
+    float64_t capa = i64_to_f64(mrb->arena_capa);
+    mrb->arena_capa = f64_to_i64(f64_div(f64_mul(capa, i64_to_f64(3)),i64_to_f64(2)),softfloat_round_near_even,true);
     mrb->arena = (struct RBasic**)mrb_realloc(mrb, mrb->arena, sizeof(struct RBasic*)*mrb->arena_capa);
   }
 #endif
@@ -1533,7 +1532,6 @@ test_incremental_gc(void)
         live++;
       }
       if (is_gray(&p->as.basic) && !is_dead(mrb, &p->as.basic)) {
-       // printf("%p\n", &p->as.basic);
       }
       p++;
     }

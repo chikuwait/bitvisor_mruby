@@ -1104,9 +1104,7 @@ readint_float(codegen_scope *s, const char *p, int base)
     c = tolower((unsigned char)c);
     for (n=0; n<base; n++) {
       if (mrb_digitmap[n] == c) {
-        //f *= base;
         f = f64_mul(f,i64_to_f64(base));
-        //f += n;
         f = f64_add(f,i64_to_f64(n));
         break;
       }

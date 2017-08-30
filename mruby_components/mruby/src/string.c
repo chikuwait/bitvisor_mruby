@@ -2340,12 +2340,10 @@ mrb_cstr_to_dbl(mrb_state *mrb, const char * p, mrb_bool badcheck)
 
   enum {max_width = 20};
 
-//  if (!p) return 0.0;
   if (!p) return i64_to_f64(0);
   while (ISSPACE(*p)) p++;
 
   if (!badcheck && p[0] == '0' && (p[1] == 'x' || p[1] == 'X')) {
-   // return 0.0;
    return i64_to_f64(0);
   }
   d = strtof64(p, &end);
@@ -2384,7 +2382,6 @@ bad:
     p = buf;
 
     if (!badcheck && p[0] == '0' && (p[1] == 'x' || p[1] == 'X')) {
-      //return 0.0;
       return i64_to_f64(0);
     }
 
