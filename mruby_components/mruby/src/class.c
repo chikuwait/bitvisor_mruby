@@ -18,7 +18,6 @@
 #include "mruby/data.h"
 
 KHASH_DEFINE(mt, mrb_sym, struct RProc*, TRUE, kh_int_hash_func, kh_int_hash_equal)
-#define f64_to_i64(x) f64_to_i64((x), softfloat_round_near_even, 1)
 void
 mrb_gc_mark_mt(mrb_state *mrb, struct RClass *c)
 {

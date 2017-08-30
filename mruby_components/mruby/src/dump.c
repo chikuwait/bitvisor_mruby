@@ -25,14 +25,14 @@ static size_t get_irep_record_size_1(mrb_state *mrb, mrb_irep *irep);
 #if UINT32_MAX > SIZE_MAX
 # error This code cannot be built on your environment.
 #endif
-
-static int
+/* 
+int
 f64_isnan(float64_t f)
 {
     return isNaNF64UI(f.v);
 }
 
-static int
+int
 f64_isinf (float64_t f) {
   if (((f.v>>52) & 0x7FF) == 0x7FF){
     return 1;
@@ -43,11 +43,11 @@ f64_isinf (float64_t f) {
   return 0;
 }
 
-static float64_t
+float64_t
 f64_floor (float64_t f) {
     return f64_roundToInt(f,softfloat_round_min,0);
 }
-static float64_t
+float64_t
 f64_ceil (float64_t f) {
   return f64_roundToInt(f,softfloat_round_max,0);
 }
@@ -78,7 +78,7 @@ f64_log10(float64_t arg)
     float64_t e10 = f64_log(i32_to_f64(10));
     return f64_div(ex,e10);
 }
-
+*/
 static int
 mrb_float_to_str(char* buf, mrb_float flo)
 {

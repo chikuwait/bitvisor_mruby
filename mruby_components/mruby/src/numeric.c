@@ -23,17 +23,18 @@
 #define FLO_MAX_DIGITS 14
 #define FLO_MAX_SIGN_LENGTH 10
 #endif
-#define f64_to_i64(x) f64_to_i64((x), softfloat_round_min, 1)
+//#define f64_to_i64(x) f64_to_i64((x), softfloat_round_min, 1)
 #define f64_signbit(f)((f.v>>63))
 static float64_t NAN = {0xFFFFFFFFFFFFFFFF};
 static float64_t INFINITY = {0x7FF0000000000000};
 #define isNaNF64UI( a ) (((~(a) & UINT64_C( 0x7FF0000000000000 )) == 0) && ((a) & UINT64_C( 0x000FFFFFFFFFFFFF )))
-static int
+int
 f64_isnan(float64_t f)
 {
     return isNaNF64UI(f.v);
 }
-static int
+
+int
 f64_isinf (float64_t f) {
   if (((f.v>>52) & 0x07FF) != 0x07FF){
     return 0;
@@ -43,7 +44,7 @@ f64_isinf (float64_t f) {
   }
   return 1;
 }
-static int
+int
 f64_isfinite(float64_t f)
 {
     if(f64_isinf(f))
@@ -53,7 +54,7 @@ f64_isfinite(float64_t f)
     return 1;
 }
 
-static float64_t
+float64_t
 f64_floor (float64_t f) {
     return f64_roundToInt(f,softfloat_round_min,0);
 }
@@ -83,7 +84,7 @@ f64_log10(float64_t arg)
     float64_t e10 = f64_log(i32_to_f64(10));
     return f64_div(ex,e10);
 }
-static float64_t
+float64_t
 f64_ceil (float64_t f) {
   return f64_roundToInt(f,softfloat_round_max,0);
 }
