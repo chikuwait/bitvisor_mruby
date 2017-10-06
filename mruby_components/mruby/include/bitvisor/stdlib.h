@@ -1,7 +1,8 @@
 typedef unsigned long size_t;
-typedef void *FILE;
-#define stderr NULL
+//typedef void *FILE;
+//#define stderr NULL
 void free(void *ptr);
+void *malloc(size_t size);
 void *realloc(void *ptr, size_t size);
 int abs(int j);
 unsigned long int strtol(const char *nptr, char **endptr, int base);
