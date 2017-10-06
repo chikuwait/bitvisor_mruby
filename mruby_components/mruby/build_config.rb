@@ -7,10 +7,11 @@ MRuby::Build.new do |conf|
     linker.libraries = %w(softfloat)
     linker.library_paths = ["./"]
   end
- # conf.gembox 'default'
 end
+
 MRuby::CrossBuild.new('BitVisor') do |conf|
    toolchain :gcc
+   conf.gem :github => 'iij/mruby-regexp-pcre'
    conf.linker do |linker|
     linker.libraries = %w(softfloat)
     linker.library_paths = ["./"]
