@@ -1,6 +1,9 @@
 #if 0
 #include <linux/ctype.h>
 #endif
+int isgraph(int c);
+int ispunct(int c);
+int iscntrl(int c);
 #define isalnum(c) (isalpha(c) || isdigit(c))
 #define isalpha(c) (isupper(c) || islower(c))
 #define isupper(c) ('A' <= (c) && (c) <= 'Z')
