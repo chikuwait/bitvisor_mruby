@@ -1,9 +1,8 @@
-#if 0
-#include <linux/ctype.h>
-#endif
-int isgraph(int c);
-int ispunct(int c);
-int iscntrl(int c);
+#define isgraph(c) (isprint(c) && !(c == ' ' || c == '\t'))
+#define ispunct(c) (isgraph(c) && !isalnum(c))
+#define iscntrl(c) (isascii(c) && !isprint(c))
+//#define isprint(c) (c >= ' ' && c <= '~')
+#define isascii(c) (c >='\0' && c<= '\177')
 #define isalnum(c) (isalpha(c) || isdigit(c))
 #define isalpha(c) (isupper(c) || islower(c))
 #define isupper(c) ('A' <= (c) && (c) <= 'Z')
