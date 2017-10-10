@@ -193,5 +193,9 @@ exit(int status)
 {
     panic("mruby exit(%d)",status);
 }
-
+void
+malloc(size_t size)
+{
+    alloc(size);
+}
 
