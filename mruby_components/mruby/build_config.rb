@@ -1,6 +1,7 @@
 MRuby::Build.new do |conf|
   toolchain :gcc
 
+  conf.gem :github => 'iij/mruby-regexp-pcre'
   enable_debug
 
   conf.linker do |linker|
