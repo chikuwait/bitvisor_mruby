@@ -2022,10 +2022,10 @@ RETRY_TRY_BLOCK:
   }\
 } while(0)
 
-#define OP_CMP_BODY_REV_I64_I64(op,v1,v2) (v2(regs[a]) op v1(regs[a+1]))
+#define OP_CMP_BODY_REV_I64_I64(op,v1,v2) (v1(regs[a]) op v2(regs[a+1]))
 #define OP_CMP_BODY_REV_F64_I64(op,v1,v2) (op(i64_to_f64(v2(regs[a+1])),v1(regs[a])))
 #define OP_CMP_BODY_REV_I64_F64(op,v1,v2) (op(v2(regs[a+1]),i64_to_f64(v1(regs[a]))))
-#define OP_CMP_BODY_REV_F64_F64(op,v1,v2) (op(v2(regs[a]),v1(regs[a+1])))
+#define OP_CMP_BODY_REV_F64_F64(op,v1,v2) (op(v2(regs[a+1]),v1(regs[a])))
 #define OP_CMP_REV(op1,op2) do {\
   int result;\
   /* need to check if - is overridden */\
@@ -2082,14 +2082,14 @@ RETRY_TRY_BLOCK:
     CASE(OP_GT) {
       /* A B C  R(A) := R(A)>R(A+1) (Syms[B]=:>,C=1)*/
       int a = GETARG_A(i);
-      OP_CMP_REV(<,f64_lt);
+      OP_CMP_REV(>,f64_lt);
       NEXT;
     }
 
     CASE(OP_GE) {
       /* A B C  R(A) := R(A)>=R(A+1) (Syms[B]=:>=,C=1)*/
       int a = GETARG_A(i);
-      OP_CMP_REV(<=,f64_le);
+      OP_CMP_REV(>=,f64_le);
       NEXT;
     }
 
