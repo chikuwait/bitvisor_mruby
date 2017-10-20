@@ -6,7 +6,6 @@
 #include <stdint.h>
 #include <limits.h>
 #define INT_MAX 2147483647
-
 typedef unsigned long size_t;
 typedef void * FILE;
 typedef long int ptrdiff_t;
@@ -193,6 +192,7 @@ exit(int status)
 {
     panic("mruby exit(%d)",status);
 }
+
 void
 malloc(size_t size)
 {
