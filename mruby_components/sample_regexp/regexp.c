@@ -61,14 +61,15 @@ heartbeat_thread(void *arg)
         mrbc_context *cxt = mrbc_context_new(mrb);
         mrbc_filename(mrb, cxt, "foo.rb");
         mrb_load_string_cxt(mrb,"",cxt);
-//        mrb_value exc = mrb_obj_value(mrb->exc);
-//      mrb_value backtrace = mrb_get_backtrace(mrb,exc);
- //       printf("%s\n",mrb_str_to_cstr(mrb,mrb_inspect(mrb,backtrace)));
-
-   //     mrb_value inspect = mrb_inspect(mrb,exc);
- //       printf("%s\n",mrb_str_to_cstr(mrb,inspect));
-  //      mrb->exc = 0;
-   //     mrb_gc_arena_restore(mrb,ai);
+/*
+ *      mrb_value exc = mrb_obj_value(mrb->exc);
+ *      mrb_value backtrace = mrb_get_backtrace(mrb,exc);
+ *      printf("%s\n",mrb_str_to_cstr(mrb,mrb_inspect(mrb,backtrace)));
+ *      mrb_value inspect = mrb_inspect(mrb,exc);
+ *      printf("%s\n",mrb_str_to_cstr(mrb,inspect));
+ *      mrb->exc = 0;
+ *       mrb_gc_arena_restore(mrb,ai);
+        */
         mrbc_context_free(mrb,cxt);
         mrb_close(mrb);
     }
