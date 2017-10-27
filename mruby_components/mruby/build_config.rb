@@ -13,6 +13,7 @@ end
 MRuby::CrossBuild.new('BitVisor') do |conf|
    toolchain :gcc
    conf.gem :github => 'chikuwait/mruby-regexp-pcre'
+   conf.gem :github => 'chikuwait/mruby-pack'
    conf.linker do |linker|
     linker.libraries = %w(softfloat)
     linker.library_paths = ["./"]
