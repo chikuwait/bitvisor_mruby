@@ -186,7 +186,11 @@ abort(void)
 {
     panic("mruby abort");
 }
-
+void
+__stack_chk_fail(void)
+{
+    abort();
+}
 void
 exit(int status)
 {
