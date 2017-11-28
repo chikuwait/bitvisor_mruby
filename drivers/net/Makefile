@@ -3,7 +3,7 @@ CONSTANTS-$(CONFIG_ENABLE_ASSERT) += -DENABLE_ASSERT
 CONSTANTS-$(CONFIG_VTD_TRANS) += -DVTD_TRANS
 CONSTANTS-$(CONFIG_NET_VIRTIO_NET) += -DVIRTIO_NET
 
-CFLAGS += -Idrivers -Ivpn/lib
+CFLAGS += -Idrivers -Ivpn/lib -DDISABLE_STDIO -Imruby_components/mruby/include/
 
 objs-$(CONFIG_NET_PRO100) += pro100.o
 objs-$(CONFIG_NET_PRO1000) += pro1000.o

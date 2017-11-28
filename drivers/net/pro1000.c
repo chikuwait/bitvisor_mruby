@@ -26,7 +26,8 @@
  * ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
  * POSSIBILITY OF SUCH DAMAGE.
  */
-
+#include <mruby.h>
+#include <mruby/array.h>
 #include <core.h>
 #include <core/initfunc.h>
 #include <core/list.h>
@@ -36,10 +37,9 @@
 #include "virtio_net.h"
 
 typedef unsigned int UINT;
-
 static const char driver_name[] = "pro1000";
 static const char driver_longname[] = "Intel PRO/1000 driver";
-
+static int mrb_nicload = 0;
 #ifdef VTD_TRANS
 #include "passthrough/vtd.h"
 int add_remap() ;
@@ -305,7 +305,6 @@ write_mydesc (struct desc_shadow *s, struct data2 *d2, uint off2,
 			RDESC_SIZE;
 	}
 }
-
 static void
 send_physnic_sub (struct data2 *d2, UINT num_packets, void **packets,
 		  UINT *packet_sizes, bool print_ok)
@@ -343,6 +342,7 @@ send_physnic_sub (struct data2 *d2, UINT num_packets, void **packets,
 			continue;
 		}
 		memcpy (s->u.t.tbuf[t], packets[i], packet_sizes[i]);
+
 		td = &s->u.t.td[t];
 		td->len = packet_sizes[i];
 		td->cso = 0;
@@ -381,7 +381,6 @@ static void
 setrecv_physnic (void *handle, net_recv_callback_t *callback, void *param)
 {
 	struct data2 *d2 = handle;
-
 	d2->recvphys_func = callback;
 	d2->recvphys_param = param;
 }
@@ -652,7 +651,16 @@ init_desc (struct desc_shadow *s, struct data2 *d2, uint off2, bool transmit)
 		net_start (d2->nethandle);
 	}
 }
-
+u64 mrb_macaddr[6];
+mrb_value
+bitvisor_sendnic (mrb_state *mrb,mrb_value self)
+{
+    mrb_value mac = mrb_ary_new(mrb);
+    for(int i =0;i<6;i++){
+        mrb_ary_push(mrb, mac, mrb_fixnum_value(mrb_macaddr[i]));
+    }
+    return mac;
+}
 static void
 tdesc_copytobuf (struct data2 *d2, phys_t *addr, uint *len)
 {
@@ -664,6 +672,9 @@ tdesc_copytobuf (struct data2 *d2, phys_t *addr, uint *len)
 		i = *len;
 	q = mapmem_gphys (*addr, i, 0);
 	memcpy (d2->buf + d2->len, q, i);
+    for (int j=0; j<6; j++) {
+        mrb_macaddr[j] = *(q+j);
+    }
 	d2->len += i;
 	unmapmem (q, i);
 	*addr += i;
@@ -776,7 +787,6 @@ tse_set_next_header (struct data2 *d2)
 	if (d2->dext0_ip) {
 		*(u16 *)(void *)&iphdr[4] =
 			bswap16 (bswap16 (*(u16 *)(void *)&iphdr[4]) + 1);
-		
 	}
 	/* add TCP sequence number */
 	if (d2->dext0_tcp) {
@@ -921,17 +931,17 @@ process_tdesc (struct data2 *d2, struct tdesc *td)
 				);
 		if (td->cmd_rs)
 			td->sta_dd = 1;
-	} else if (td->addr && td->len) {
-		/* Legacy Transmit Descriptor */
-		tdaddr = td->addr;
-		tdlen = td->len;
-		tdesc_copytobuf (d2, &tdaddr, &tdlen);
-		if (td->cmd_eop) {
-			if (!td->cmd_ifcs)
-				printf ("FIXME: IFCS=0\n");
-			if (td->cmd_ic)
-				printf ("FIXME: IC=1\n");
-			if (d2->recvvirt_func) {
+    } else if (td->addr && td->len) {
+        /*  Legacy Transmit Descriptor */
+        tdaddr = td->addr;
+        tdlen = td->len;
+        tdesc_copytobuf (d2, &tdaddr, &tdlen);
+        if (td->cmd_eop) {
+            if (!td->cmd_ifcs)
+                printf ("FIXME: IFCS=0\n");
+            if (td->cmd_ic)
+                printf ("FIXME: IC");
+            if (d2->recvvirt_func) {
 				void *packet_data[1];
 				UINT packet_sizes[1];
 				long packet_premap[1];
@@ -960,7 +970,6 @@ guest_is_transmitting (struct desc_shadow *s, struct data2 *d2)
 	struct tdesc *td;
 	u32 i, j, l;
 	u64 k;
-
 	if (d2->d1->disable)	/* PCI config reg is disabled */
 		return;
 	if (!(d2->tctl & 2))	/* !EN: Transmit Enable */
@@ -970,7 +979,7 @@ guest_is_transmitting (struct desc_shadow *s, struct data2 *d2)
 	k = s->base.ll;
 	l = s->len;
 	while (i != j) {
-		td = mapmem_gphys (k + i * 16, sizeof *td, MAPMEM_WRITE);
+		td = mapmem_gphys(k + i * 16, sizeof *td, MAPMEM_WRITE);
 		ASSERT (td);
 		if (process_tdesc (d2, td))
 			break;
@@ -992,7 +1001,6 @@ receive_physnic (struct desc_shadow *s, struct data2 *d2, uint off2)
 	long pkt_premap[16];
 	int i = 0, num = 16;
 	struct rdesc *rd;
-
 	write_mydesc (s, d2, off2, false);
 	head = (void *)((u8 *)d2->d1[0].map + off2 + 0x10);
 	tail = (void *)((u8 *)d2->d1[0].map + off2 + 0x18);
@@ -1040,7 +1048,6 @@ receive_physnic (struct desc_shadow *s, struct data2 *d2, uint off2)
 	}
 	*tail = t;
 }
-
 static bool
 handle_desc (uint off1, uint len1, bool wr, union mem *buf, bool recv,
 	     struct data2 *d2, uint off2, struct desc_shadow *s)
@@ -1847,16 +1854,18 @@ vpn_pro1000_init (void)
 {
 	LIST1_HEAD_INIT (d2list);
 	pci_register_driver (&pro1000_driver);
+    mrb_nicload = 1;
 	return;
 }
 
 static void
 resume_pro1000 (void)
 {
+
 	struct data2 *d2;
 	int i;
 	pci_config_address_t addr;
-
+    printf("test----------------------\n");
 	/* All descriptors should be reinitialized before
 	 * receiving/transmitting enabled by the guest OS. */
 	LIST1_FOREACH (d2list, d2) {
