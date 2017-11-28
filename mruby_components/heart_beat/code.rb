@@ -1,11 +1,9 @@
-prev = Bitvisor.get_time()
+
 loop do
-  Bitvisor.set_schedule()
-  cur = Bitvisor.get_time()
+  Bitvisor.set_schedule
 
-  if cur - prev >= 5 *1000*1000 then
-    Bitvisor.print "#{cur}:tick!\n"
-    prev = cur
+  addr = Bitvisor.get_dest_macaddr.map{|i| i.to_s(16)}.join(":")
+  Bitvisor.print("mac addr = #{addr}\n")
   end
-end
 
+end
