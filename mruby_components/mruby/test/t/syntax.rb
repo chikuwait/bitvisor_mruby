@@ -1,6 +1,6 @@
 assert('__FILE__') do
-  file = __FILE__
-  assert_true 'test/t/syntax.rb' == file || 'test\t\syntax.rb' == file
+  file = __FILE__[-9, 9]
+  assert_equal 'syntax.rb', file
 end
 
 assert('__LINE__') do
@@ -38,6 +38,26 @@ assert('yield', '11.3.5') do
   assert_raise LocalJumpError do
     yield
   end
+  assert_raise LocalJumpError do
+    o = Object.new
+    def o.foo
+      yield
+    end
+    o.foo
+  end
+end
+
+assert('redo in a for loop (#3275)') do
+  sum = 0
+  for i in 1..10
+    sum += i
+    i -= 1
+    if i > 0
+      redo
+    end
+  end
+
+  assert_equal 220, sum
 end
 
 assert('Abbreviated variable assignment', '11.4.2.3.2') do
@@ -213,6 +233,48 @@ assert('Splat and multiple assignment in for') do
   assert_equal 7, f
 end
 
+assert('Splat without assignment') do
+  * = [0]
+  a, * = [1, 2]
+  assert_equal 1, a
+end
+
+assert('multiple assignment (rest)') do
+  *a = 0
+  assert_equal [0], a
+end
+
+assert('multiple assignment (rest+post)') do
+  *a, b = 0, 1, 2
+  *c, d = 3
+
+  assert_equal [0, 1], a
+  assert_equal 2, b
+  assert_equal [], c
+  assert_equal 3, d
+end
+
+assert('multiple assignment (nosplat array rhs)') do
+  a, *b = []
+  *c, d = [0]
+  e, *f, g = [1, 2]
+
+  assert_nil a
+  assert_equal [], b
+  assert_equal [], c
+  assert_equal 0, d
+  assert_equal 1, e
+  assert_equal [], f
+  assert_equal 2, g
+end
+
+assert('multiple assignment (empty array rhs #3236, #3239)') do
+  a,b,*c = []; assert_equal [nil, nil, []], [a, b, c]
+  a,b,*c = [1]; assert_equal [1, nil, []], [a, b, c]
+  a,b,*c = [nil]; assert_equal [nil,nil, []], [a, b, c]
+  a,b,*c = [[]]; assert_equal [[], nil, []], [a, b, c]
+end
+
 assert('Return values of case statements') do
   a = [] << case 1
   when 3 then 2
@@ -241,6 +303,60 @@ assert('Return values of case statements') do
   assert_equal 1, fb.call
 end
 
+assert('Return values of if and case statements') do
+  true_clause_value =
+    if true
+      1
+    else
+      case 2
+      when 3
+      end
+      4
+    end
+
+  assert_equal 1, true_clause_value
+end
+
+assert('Return values of no expression case statement') do
+  when_value =
+    case
+    when true
+      1
+    end
+
+  assert_equal 1, when_value
+end
+
+assert('splat object in assignment') do
+  o = Object.new
+  def o.to_a
+    nil
+  end
+  assert_equal [o], (a = *o)
+
+  def o.to_a
+    1
+  end
+  assert_raise(TypeError) { a = *o }
+
+  def o.to_a
+    [2]
+  end
+  assert_equal [2], (a = *o)
+end
+
+assert('splat object in case statement') do
+  o = Object.new
+  def o.to_a
+    nil
+  end
+  a = case o
+  when *o
+    1
+  end
+  assert_equal 1, a
+end
+
 assert('splat in case statement') do
   values = [3,5,1,7,8]
   testa = [1,2,7]
@@ -265,7 +381,7 @@ assert('splat in case statement') do
 end
 
 assert('External command execution.') do
-  class << Kernel
+  module Kernel
     sym = '`'.to_sym
     alias_method :old_cmd, sym
 

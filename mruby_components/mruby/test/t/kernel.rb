@@ -52,11 +52,6 @@ assert('Kernel.lambda', '15.3.1.2.6') do
   assert_equal Proc, m.class
 end
 
-# Not implemented at the moment
-#assert('Kernel.local_variables', '15.3.1.2.7') do
-#  Kernel.local_variables.class == Array
-#end
-
 assert('Kernel.loop', '15.3.1.2.8') do
   i = 0
 
@@ -221,6 +216,14 @@ assert('Kernel#dup', '15.3.1.3.9') do
   assert_false c.respond_to?(:test)
 end
 
+assert('Kernel#dup class') do
+  assert_nothing_raised do
+    Array.dup.new(200)
+    Range.dup.new(2, 3)
+    String.dup.new("a"*50)
+  end
+end
+
 # Kernel#eval is provided by mruby-eval mrbgem '15.3.1.3.12'
 
 assert('Kernel#extend', '15.3.1.3.13') do
@@ -247,6 +250,13 @@ assert('Kernel#extend works on toplevel', '15.3.1.3.13') do
   extend(Test4ExtendModule)
 
   assert_true respond_to?(:test_method)
+end
+
+assert('Kernel#freeze') do
+  obj = Object.new
+  assert_equal obj, obj.freeze
+  assert_equal 0, 0.freeze
+  assert_equal :a, :a.freeze
 end
 
 assert('Kernel#global_variables', '15.3.1.3.14') do
@@ -319,11 +329,6 @@ assert('Kernel#lambda', '15.3.1.3.27') do
   assert_equal Proc, m.class
 end
 
-# Not implemented yet
-#assert('Kernel#local_variables', '15.3.1.3.28') do
-#  local_variables.class == Array
-#end
-
 assert('Kernel#loop', '15.3.1.3.29') do
   i = 0
 
@@ -343,6 +348,26 @@ assert('Kernel#method_missing', '15.3.1.3.30') do
   end
   mm_test = MMTestClass.new
   assert_equal 'A call to no_method_named_this', mm_test.no_method_named_this
+
+  class SuperMMTestClass < MMTestClass
+    def no_super_method_named_this
+      super
+    end
+  end
+  super_mm_test = SuperMMTestClass.new
+  assert_equal 'A call to no_super_method_named_this', super_mm_test.no_super_method_named_this
+
+  class NoSuperMethodTestClass
+    def no_super_method_named_this
+      super
+    end
+  end
+  no_super_test = NoSuperMethodTestClass.new
+  begin
+    no_super_test.no_super_method_named_this
+  rescue NoMethodError => e
+    assert_equal "undefined method 'no_super_method_named_this' for #{no_super_test}", e.message
+  end
 
   a = String.new
   begin
@@ -372,7 +397,7 @@ assert('Kernel#method_missing', '15.3.1.3.30') do
   begin
     c.no_method_named_this
   rescue NoMethodError => e
-    assert_equal "undefined method 'no_method_named_this' for #{c.to_s}", e.message
+    assert_equal "undefined method 'no_method_named_this' for #{c}", e.message
   end
 
   class NoInspectClass
@@ -382,7 +407,7 @@ assert('Kernel#method_missing', '15.3.1.3.30') do
   begin
     d.no_method_named_this
   rescue NoMethodError => e
-    assert_equal "undefined method 'no_method_named_this' for #{d.to_s}", e.message
+    assert_equal "undefined method 'no_method_named_this' for #{d}", e.message
   end
 end
 
@@ -423,6 +448,11 @@ end
 
 assert('Kernel#public_methods', '15.3.1.3.38') do
   assert_equal Array, public_methods.class
+  class Foo
+    def foo
+    end
+  end
+  assert_equal [:foo], Foo.new.public_methods(false)
 end
 
 # Kernel#puts is defined in mruby-print mrbgem. '15.3.1.3.39'
@@ -507,6 +537,21 @@ assert('Kernel#to_s', '15.3.1.3.46') do
   assert_equal to_s.class, String
 end
 
+assert('Kernel#to_s on primitives') do
+  begin
+    Fixnum.alias_method :to_s_, :to_s
+    Fixnum.remove_method :to_s
+
+    assert_nothing_raised do
+      # segfaults if mrb_cptr is used
+      1.to_s
+    end
+  ensure
+    Fixnum.alias_method :to_s, :to_s_
+    Fixnum.remove_method :to_s_
+  end
+end
+
 assert('Kernel.local_variables', '15.3.1.2.7') do
   a, b = 0, 1
   a += b
@@ -514,11 +559,11 @@ assert('Kernel.local_variables', '15.3.1.2.7') do
   vars = Kernel.local_variables.sort
   assert_equal [:a, :b, :vars], vars
 
-  Proc.new {
+  assert_equal [:a, :b, :c, :vars], Proc.new { |a, b|
     c = 2
-    vars = Kernel.local_variables.sort
-    assert_equal [:a, :b, :c, :vars], vars
-  }.call
+    # Kernel#local_variables: 15.3.1.3.28
+    local_variables.sort
+  }.call(-1, -2)
 end
 
 assert('Kernel#!=') do
@@ -587,4 +632,3 @@ assert('stack extend') do
 
   assert_equal 6, recurse(0, 5)
 end
-

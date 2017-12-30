@@ -1,17 +1,16 @@
 ##
 # Enumerable
 #
-#  ISO 15.3.2
+# The <code>Enumerable</code> mixin provides collection classes with
+# several traversal and searching methods, and with the ability to
+# sort. The class must provide a method `each`, which
+# yields successive members of the collection. If
+# {Enumerable#max}, {#min}, or
+# {#sort} is used, the objects in the collection must also
+# implement a meaningful `<=>` operator, as these methods
+# rely on an ordering between members of the collection.
 #
-#  The <code>Enumerable</code> mixin provides collection classes with
-#  several traversal and searching methods, and with the ability to
-#  sort. The class must provide a method <code>each</code>, which
-#  yields successive members of the collection. If
-#  <code>Enumerable#max</code>, <code>#min</code>, or
-#  <code>#sort</code> is used, the objects in the collection must also
-#  implement a meaningful <code><=></code> operator, as these methods
-#  rely on an ordering between members of the collection.
-
+# @ISO 15.3.2
 module Enumerable
 
   ##
@@ -24,17 +23,9 @@ module Enumerable
   # ISO 15.3.2.2.1
   def all?(&block)
     if block
-      self.each{|*val|
-        unless block.call(*val)
-          return false
-        end
-      }
+      self.each{|*val| return false unless block.call(*val)}
     else
-      self.each{|*val|
-        unless val.__svalue
-          return false
-        end
-      }
+      self.each{|*val| return false unless val.__svalue}
     end
     true
   end
@@ -49,17 +40,9 @@ module Enumerable
   # ISO 15.3.2.2.2
   def any?(&block)
     if block
-      self.each{|*val|
-        if block.call(*val)
-          return true
-        end
-      }
+      self.each{|*val| return true if block.call(*val)}
     else
-      self.each{|*val|
-        if val.__svalue
-          return true
-        end
-      }
+      self.each{|*val| return true if val.__svalue}
     end
     false
   end
@@ -75,9 +58,7 @@ module Enumerable
     return to_enum :collect unless block
 
     ary = []
-    self.each{|*val|
-      ary.push(block.call(*val))
-    }
+    self.each{|*val| ary.push(block.call(*val))}
     ary
   end
 
@@ -183,9 +164,7 @@ module Enumerable
   # ISO 15.3.2.2.10
   def include?(obj)
     self.each{|*val|
-      if val.__svalue == obj
-        return true
-      end
+      return true if val.__svalue == obj
     }
     false
   end
@@ -337,45 +316,6 @@ module Enumerable
   alias select find_all
 
   ##
-  # TODO
-  # Does this OK? Please test it.
-  def __sort_sub__(sorted, work, src_ary, head, tail, &block)
-    if head == tail
-      sorted[head] = work[head] if src_ary == 1
-      return
-    end
-
-    # on current step, which is a src ary?
-    if src_ary == 0
-      src, dst = sorted, work
-    else
-      src, dst = work, sorted
-    end
-
-    key = src[head]    # key value for dividing values
-    i, j = head, tail  # position to store on the dst ary
-
-    (head + 1).upto(tail){|idx|
-      if ((block)? block.call(src[idx], key): (src[idx] <=> key)) > 0
-        # larger than key
-        dst[j] = src[idx]
-        j -= 1
-      else
-        dst[i] = src[idx]
-        i += 1
-      end
-    }
-
-    sorted[i] = key
-
-    # sort each sub-array
-    src_ary = (src_ary + 1) % 2  # exchange a src ary
-    __sort_sub__(sorted, work, src_ary, head, i - 1, &block) if i > head
-    __sort_sub__(sorted, work, src_ary, i + 1, tail, &block) if i < tail
-  end
-#  private :__sort_sub__
-
-  ##
   # Return a sorted array of all elements
   # which are yield by +each+. If no block
   # is given <=> will be invoked on each
@@ -385,12 +325,7 @@ module Enumerable
   #
   # ISO 15.3.2.2.19
   def sort(&block)
-    ary = []
-    self.each{|*val| ary.push(val.__svalue)}
-    if ary.size > 1
-      __sort_sub__(ary, ::Array.new(ary.size), 0, 0, ary.size - 1, &block)
-    end
-    ary
+    self.map{|*val| val.__svalue}.sort
   end
 
   ##
@@ -402,8 +337,11 @@ module Enumerable
   # redefine #hash 15.3.1.3.15
   def hash
     h = 12347
+    i = 0
     self.each do |e|
-      h ^= e.hash
+      n = (e.hash & (0x7fffffff >> (i % 16))) << (i % 16)
+      h ^= n
+      i += 1
     end
     h
   end

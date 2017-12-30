@@ -1,30 +1,31 @@
-# = Enumerable#lazy implementation
-#
-# Enumerable#lazy returns an instance of Enumerable::Lazy.
-# You can use it just like as normal Enumerable object,
-# except these methods act as 'lazy':
-#
-#   - map       collect
-#   - select    find_all
-#   - reject
-#   - grep
-#   - drop
-#   - drop_while
-#   - take_while
-#   - flat_map  collect_concat
-#   - zip
-#
-# == Acknowledgements
-#
-#   Based on https://github.com/yhara/enumerable-lazy
-#   Inspired by https://github.com/antimon2/enumerable_lz
-#   http://jp.rubyist.net/magazine/?0034-Enumerable_lz (ja)
-
 module Enumerable
-  def lazy
-    Lazy.new(self)
-  end
 
+  # = Enumerable#lazy implementation
+  #
+  # Enumerable#lazy returns an instance of Enumerator::Lazy.
+  # You can use it just like as normal Enumerable object,
+  # except these methods act as 'lazy':
+  #
+  #   - map       collect
+  #   - select    find_all
+  #   - reject
+  #   - grep
+  #   - drop
+  #   - drop_while
+  #   - take_while
+  #   - flat_map  collect_concat
+  #   - zip
+  def lazy
+    Enumerator::Lazy.new(self)
+  end
+end
+
+class Enumerator
+  # == Acknowledgements
+  #
+  #   Based on https://github.com/yhara/enumerable-lazy
+  #   Inspired by https://github.com/antimon2/enumerable_lz
+  #   http://jp.rubyist.net/magazine/?0034-Enumerable_lz (ja)
   class Lazy < Enumerator
     def initialize(obj, &block)
       super(){|yielder|
@@ -40,6 +41,18 @@ module Enumerable
         end
       }
     end
+
+    def to_enum(meth=:each, *args, &block)
+      unless self.respond_to?(meth)
+        raise NoMethodError, "undefined method #{meth}"
+      end
+      lz = Lazy.new(self, &block)
+      lz.obj = self
+      lz.meth = meth
+      lz.args = args
+      lz
+    end
+    alias enum_for to_enum
 
     def map(&block)
       Lazy.new(self){|yielder, val|
@@ -59,7 +72,7 @@ module Enumerable
 
     def reject(&block)
       Lazy.new(self){|yielder, val|
-        if not block.call(val)
+        unless block.call(val)
           yielder << val
         end
       }
@@ -141,6 +154,21 @@ module Enumerable
           yielder << block.call(ary)
         else
           yielder << ary
+        end
+      }
+    end
+
+    def uniq(&block)
+      hash = {}
+      Lazy.new(self){|yielder, val|
+        if block
+          v = block.call(val)
+        else
+          v = val
+        end
+        unless hash.include?(v)
+          yielder << val
+          hash[v] = val
         end
       }
     end

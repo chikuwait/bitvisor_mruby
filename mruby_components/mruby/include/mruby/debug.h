@@ -7,9 +7,12 @@
 #ifndef MRUBY_DEBUG_H
 #define MRUBY_DEBUG_H
 
-#if defined(__cplusplus)
-extern "C" {
-#endif
+#include "common.h"
+
+/**
+ * MRuby Debugging.
+ */
+MRB_BEGIN_DECL
 
 typedef enum mrb_debug_line_type {
   mrb_debug_line_ary = 0,
@@ -44,13 +47,13 @@ typedef struct mrb_irep_debug_info {
  * get line from irep's debug info and program counter
  * @return returns NULL if not found
  */
-MRB_API const char *mrb_debug_get_filename(mrb_irep *irep, uint32_t pc);
+MRB_API const char *mrb_debug_get_filename(mrb_irep *irep, ptrdiff_t pc);
 
 /*
  * get line from irep's debug info and program counter
  * @return returns -1 if not found
  */
-MRB_API int32_t mrb_debug_get_line(mrb_irep *irep, uint32_t pc);
+MRB_API int32_t mrb_debug_get_line(mrb_irep *irep, ptrdiff_t pc);
 
 MRB_API mrb_irep_debug_info_file *mrb_debug_info_append_file(
     mrb_state *mrb, mrb_irep *irep,
@@ -58,8 +61,6 @@ MRB_API mrb_irep_debug_info_file *mrb_debug_info_append_file(
 MRB_API mrb_irep_debug_info *mrb_debug_info_alloc(mrb_state *mrb, mrb_irep *irep);
 MRB_API void mrb_debug_info_free(mrb_state *mrb, mrb_irep_debug_info *d);
 
-#if defined(__cplusplus)
-}  /* extern "C" { */
-#endif
+MRB_END_DECL
 
 #endif /* MRUBY_DEBUG_H */

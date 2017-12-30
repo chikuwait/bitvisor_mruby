@@ -10,7 +10,7 @@ class Range
   #
   # ISO 15.2.14.4.4
   def each(&block)
-    return to_enum :each unless block_given?
+    return to_enum :each unless block
 
     val = self.first
     last = self.last
@@ -26,29 +26,34 @@ class Range
       return self
     end
 
-    unless val.respond_to? :succ
-      raise TypeError, "can't iterate"
+    if val.kind_of?(String) && last.kind_of?(String) # fixnums are special
+      if val.respond_to? :upto
+        return val.upto(last, exclude_end?, &block)
+      else
+        str_each = true
+      end
     end
+
+    raise TypeError, "can't iterate" unless val.respond_to? :succ
 
     return self if (val <=> last) > 0
 
-    while((val <=> last) < 0)
+    while (val <=> last) < 0
       block.call(val)
       val = val.succ
+      if str_each
+        break if val.size > last.size
+      end
     end
 
-    if not exclude_end? and (val <=> last) == 0
-      block.call(val)
-    end
+    block.call(val) if !exclude_end? && (val <=> last) == 0
     self
   end
 
   # redefine #hash 15.3.1.3.15
   def hash
     h = first.hash ^ last.hash
-    if self.exclude_end?
-      h += 1
-    end
+    h += 1 if self.exclude_end?
     h
   end
 end

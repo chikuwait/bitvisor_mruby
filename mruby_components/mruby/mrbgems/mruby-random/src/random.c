@@ -4,11 +4,11 @@
 ** See Copyright Notice in mruby.h
 */
 
-#include "mruby.h"
-#include "mruby/variable.h"
-#include "mruby/class.h"
-#include "mruby/data.h"
-#include "mruby/array.h"
+#include <mruby.h>
+#include <mruby/variable.h>
+#include <mruby/class.h>
+#include <mruby/data.h>
+#include <mruby/array.h>
 #include "mt19937ar.h"
 
 #include <time.h>
@@ -79,10 +79,10 @@ get_opt(mrb_state* mrb)
   mrb_get_args(mrb, "|o", &arg);
 
   if (!mrb_nil_p(arg)) {
-    if (!mrb_fixnum_p(arg)) {
+    arg = mrb_check_convert_type(mrb, arg, MRB_TT_FIXNUM, "Fixnum", "to_int");
+    if (mrb_nil_p(arg)) {
       mrb_raise(mrb, E_ARGUMENT_ERROR, "invalid argument type");
     }
-    arg = mrb_check_convert_type(mrb, arg, MRB_TT_FIXNUM, "Fixnum", "to_int");
     if (mrb_fixnum(arg) < 0) {
       arg = mrb_fixnum_value(0 - mrb_fixnum(arg));
     }
@@ -124,6 +124,8 @@ mrb_random_init(mrb_state *mrb, mrb_value self)
   mrb_value seed;
   mt_state *t;
 
+  seed = get_opt(mrb);
+
   /* avoid memory leaks */
   t = (mt_state*)DATA_PTR(self);
   if (t) {
@@ -134,7 +136,6 @@ mrb_random_init(mrb_state *mrb, mrb_value self)
   t = (mt_state *)mrb_malloc(mrb, sizeof(mt_state));
   t->mti = N + 1;
 
-  seed = get_opt(mrb);
   seed = mrb_random_mt_srand(mrb, t, seed);
   if (mrb_nil_p(seed)) {
     t->has_seed = FALSE;
@@ -216,13 +217,15 @@ mrb_ary_shuffle_bang(mrb_state *mrb, mrb_value ary)
 
     for (i = RARRAY_LEN(ary) - 1; i > 0; i--)  {
       mrb_int j;
+      mrb_value *ptr = RARRAY_PTR(ary);
       mrb_value tmp;
+      
 
       j = mrb_fixnum(mrb_random_mt_rand(mrb, random, mrb_fixnum_value(RARRAY_LEN(ary))));
 
-      tmp = RARRAY_PTR(ary)[i];
-      mrb_ary_ptr(ary)->ptr[i] = RARRAY_PTR(ary)[j];
-      mrb_ary_ptr(ary)->ptr[j] = tmp;
+      tmp = ptr[i];
+      ptr[i] = ptr[j];
+      ptr[j] = tmp;
     }
   }
 
@@ -266,7 +269,7 @@ mrb_ary_sample(mrb_state *mrb, mrb_value ary)
   mrb_int n = 0;
   mrb_bool given;
   mt_state *random = NULL;
-  mrb_int len = RARRAY_LEN(ary);
+  mrb_int len;
 
   mrb_get_args(mrb, "|i?d", &n, &given, &random, &mt_state_type);
   if (random == NULL) {
@@ -274,6 +277,7 @@ mrb_ary_sample(mrb_state *mrb, mrb_value ary)
   }
   mrb_random_rand_seed(mrb, random);
   mt_rand(random);
+  len = RARRAY_LEN(ary);
   if (!given) {                 /* pick one element */
     switch (len) {
     case 0:

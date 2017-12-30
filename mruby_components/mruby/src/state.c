@@ -6,23 +6,18 @@
 
 #include <stdlib.h>
 #include <string.h>
-#include <printf.h>
-#include "mruby.h"
-#include "mruby/irep.h"
-#include "mruby/variable.h"
-#include "mruby/debug.h"
-#include "mruby/string.h"
+#include <mruby.h>
+#include <mruby/irep.h>
+#include <mruby/variable.h>
+#include <mruby/debug.h>
+#include <mruby/string.h>
+#include <mruby/class.h>
 
-void memprintf(char *format,size_t size, ...);
-void mrb_init_heap(mrb_state*);
 void mrb_init_core(mrb_state*);
 void mrb_init_mrbgems(mrb_state*);
-size_t memsum = 0;
-static mrb_value
-inspect_main(mrb_state *mrb, mrb_value mod)
-{
-  return mrb_str_new_lit(mrb, "main");
-}
+
+void mrb_gc_init(mrb_state*, mrb_gc *gc);
+void mrb_gc_destroy(mrb_state*, mrb_gc *gc);
 
 MRB_API mrb_state*
 mrb_open_core(mrb_allocf f, void *ud)
@@ -37,20 +32,15 @@ mrb_open_core(mrb_allocf f, void *ud)
   *mrb = mrb_state_zero;
   mrb->allocf_ud = ud;
   mrb->allocf = f;
-  mrb->current_white_part = MRB_GC_WHITE_A;
   mrb->atexit_stack_len = 0;
 
-#ifndef MRB_GC_FIXED_ARENA
-  mrb->arena = (struct RBasic**)mrb_malloc(mrb, sizeof(struct RBasic*)*MRB_GC_ARENA_SIZE);
-  mrb->arena_capa = MRB_GC_ARENA_SIZE;
-#endif
-
-  mrb_init_heap(mrb);
+  mrb_gc_init(mrb, &mrb->gc);
   mrb->c = (struct mrb_context*)mrb_malloc(mrb, sizeof(struct mrb_context));
   *mrb->c = mrb_context_zero;
   mrb->root_c = mrb->c;
 
   mrb_init_core(mrb);
+
   return mrb;
 }
 
@@ -62,14 +52,13 @@ mrb_default_allocf(mrb_state *mrb, void *p, size_t size, void *ud)
     return NULL;
   }
   else {
-    memsum += size;
     return realloc(p, size);
   }
 }
 
 struct alloca_header {
   struct alloca_header *next;
-  char buf[];
+  char buf[1];
 };
 
 MRB_API void*
@@ -103,6 +92,7 @@ MRB_API mrb_state*
 mrb_open(void)
 {
   mrb_state *mrb = mrb_open_allocf(mrb_default_allocf, NULL);
+
   return mrb;
 }
 
@@ -123,7 +113,6 @@ mrb_open_allocf(mrb_allocf f, void *ud)
 }
 
 void mrb_free_symtbl(mrb_state *mrb);
-void mrb_free_heap(mrb_state *mrb);
 
 void
 mrb_irep_incref(mrb_state *mrb, mrb_irep *irep)
@@ -141,18 +130,31 @@ mrb_irep_decref(mrb_state *mrb, mrb_irep *irep)
 }
 
 void
+mrb_irep_cutref(mrb_state *mrb, mrb_irep *irep)
+{
+  mrb_irep *tmp;
+  int i;
+
+  for (i=0; i<irep->rlen; i++) {
+    tmp = irep->reps[i];
+    irep->reps[i] = NULL;
+    if (tmp) mrb_irep_decref(mrb, tmp);
+  }
+}
+
+void
 mrb_irep_free(mrb_state *mrb, mrb_irep *irep)
 {
-  size_t i;
+  int i;
 
   if (!(irep->flags & MRB_ISEQ_NO_FREE))
     mrb_free(mrb, irep->iseq);
-  for (i=0; i<irep->plen; i++) {
+  if (irep->pool) for (i=0; i<irep->plen; i++) {
     if (mrb_type(irep->pool[i]) == MRB_TT_STRING) {
       mrb_gc_free_str(mrb, RSTRING(irep->pool[i]));
       mrb_free(mrb, mrb_obj_ptr(irep->pool[i]));
     }
-#ifdef MRB_WORD_BOXING
+#if defined(MRB_WORD_BOXING) && !defined(MRB_WITHOUT_FLOAT)
     else if (mrb_type(irep->pool[i]) == MRB_TT_FLOAT) {
       mrb_free(mrb, mrb_obj_ptr(irep->pool[i]));
     }
@@ -161,11 +163,14 @@ mrb_irep_free(mrb_state *mrb, mrb_irep *irep)
   mrb_free(mrb, irep->pool);
   mrb_free(mrb, irep->syms);
   for (i=0; i<irep->rlen; i++) {
-    mrb_irep_decref(mrb, irep->reps[i]);
+    if (irep->reps[i])
+      mrb_irep_decref(mrb, irep->reps[i]);
   }
   mrb_free(mrb, irep->reps);
   mrb_free(mrb, irep->lv);
-  mrb_free(mrb, (void *)irep->filename);
+  if (irep->own_filename) {
+    mrb_free(mrb, (void *)irep->filename);
+  }
   mrb_free(mrb, irep->lines);
   mrb_debug_info_free(mrb, irep->debug_info);
   mrb_free(mrb, irep);
@@ -218,8 +223,12 @@ mrb_str_pool(mrb_state *mrb, mrb_value str)
       ns->as.heap.ptr[len] = '\0';
     }
   }
+  RSTR_SET_POOL_FLAG(ns);
+  MRB_SET_FROZEN_FLAG(ns);
   return mrb_obj_value(ns);
 }
+
+void mrb_free_backtrace(mrb_state *mrb);
 
 MRB_API void
 mrb_free_context(mrb_state *mrb, struct mrb_context *c)
@@ -235,6 +244,7 @@ mrb_free_context(mrb_state *mrb, struct mrb_context *c)
 MRB_API void
 mrb_close(mrb_state *mrb)
 {
+  if (!mrb) return;
   if (mrb->atexit_stack_len > 0) {
     mrb_int i;
     for (i = mrb->atexit_stack_len; i > 0; --i) {
@@ -249,11 +259,8 @@ mrb_close(mrb_state *mrb)
   mrb_gc_free_gv(mrb);
   mrb_free_context(mrb, mrb->root_c);
   mrb_free_symtbl(mrb);
-  mrb_free_heap(mrb);
   mrb_alloca_free(mrb);
-#ifndef MRB_GC_FIXED_ARENA
-  mrb_free(mrb, mrb->arena);
-#endif
+  mrb_gc_destroy(mrb, &mrb->gc);
   mrb_free(mrb, mrb);
 }
 
@@ -266,6 +273,7 @@ mrb_add_irep(mrb_state *mrb)
   irep = (mrb_irep *)mrb_malloc(mrb, sizeof(mrb_irep));
   *irep = mrb_irep_zero;
   irep->refcnt = 1;
+  irep->own_filename = FALSE;
 
   return irep;
 }
@@ -273,11 +281,6 @@ mrb_add_irep(mrb_state *mrb)
 MRB_API mrb_value
 mrb_top_self(mrb_state *mrb)
 {
-  if (!mrb->top_self) {
-    mrb->top_self = (struct RObject*)mrb_obj_alloc(mrb, MRB_TT_OBJECT, mrb->object_class);
-    mrb_define_singleton_method(mrb, mrb->top_self, "inspect", inspect_main, MRB_ARGS_NONE());
-    mrb_define_singleton_method(mrb, mrb->top_self, "to_s", inspect_main, MRB_ARGS_NONE());
-  }
   return mrb_obj_value(mrb->top_self);
 }
 
@@ -294,7 +297,8 @@ mrb_state_atexit(mrb_state *mrb, mrb_atexit_func f)
   stack_size = sizeof(mrb_atexit_func) * (mrb->atexit_stack_len + 1);
   if (mrb->atexit_stack_len == 0) {
     mrb->atexit_stack = (mrb_atexit_func*)mrb_malloc(mrb, stack_size);
-  } else {
+  }
+  else {
     mrb->atexit_stack = (mrb_atexit_func*)mrb_realloc(mrb, mrb->atexit_stack, stack_size);
   }
 #endif

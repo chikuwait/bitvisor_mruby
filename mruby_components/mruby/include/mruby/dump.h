@@ -7,21 +7,23 @@
 #ifndef MRUBY_DUMP_H
 #define MRUBY_DUMP_H
 
-#if defined(__cplusplus)
-extern "C" {
-#endif
+#include <mruby.h>
+#include <mruby/irep.h>
+#include "common.h"
 
-#include "mruby.h"
-#include "mruby/irep.h"
+/**
+ * Dumping compiled mruby script.
+ */
+MRB_BEGIN_DECL
 
 #define DUMP_DEBUG_INFO 1
 #define DUMP_ENDIAN_BIG 2
 #define DUMP_ENDIAN_LIL 4
-#define DUMP_ENDIAN_NAT 6 
-#define DUMP_ENDIAN_MASK 6 
+#define DUMP_ENDIAN_NAT 6
+#define DUMP_ENDIAN_MASK 6
 
 int mrb_dump_irep(mrb_state *mrb, mrb_irep *irep, uint8_t flags, uint8_t **bin, size_t *bin_size);
-#ifdef ENABLE_STDIO
+#ifndef MRB_DISABLE_STDIO
 int mrb_dump_irep_binary(mrb_state*, mrb_irep*, uint8_t, FILE*);
 int mrb_dump_irep_cfunc(mrb_state *mrb, mrb_irep*, uint8_t flags, FILE *f, const char *initname);
 mrb_irep *mrb_read_irep_file(mrb_state*, FILE*);
@@ -50,7 +52,7 @@ MRB_API mrb_irep *mrb_read_irep(mrb_state*, const uint8_t*);
 /* Rite Binary File header */
 #define RITE_BINARY_IDENT              "RITE"
 #define RITE_BINARY_IDENT_LIL          "ETIR"
-#define RITE_BINARY_FORMAT_VER         "0003"
+#define RITE_BINARY_FORMAT_VER         "0004"
 #define RITE_COMPILER_NAME             "MATZ"
 #define RITE_COMPILER_VERSION          "0000"
 
@@ -185,11 +187,9 @@ bin_to_uint8(const uint8_t *bin)
   return (uint8_t)bin[0];
 }
 
-#if defined(__cplusplus)
-}  /* extern "C" { */
-#endif
+MRB_END_DECL
 
-/* crc.c */
+/** @internal crc.c */
 uint16_t
 calc_crc_16_ccitt(const uint8_t *src, size_t nbytes, uint16_t crc);
 

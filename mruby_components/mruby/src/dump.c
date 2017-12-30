@@ -4,220 +4,30 @@
 ** See Copyright Notice in mruby.h
 */
 
-#include <ctype.h>
 #include <string.h>
 #include <limits.h>
-#include <stdlib.h>
-#include <bitvisor/softfloat.h>
-#include "mruby/dump.h"
-#include "mruby/string.h"
-#include "mruby/irep.h"
-#include "mruby/numeric.h"
-#include "mruby/debug.h"
+#include <mruby/dump.h>
+#include <mruby/string.h>
+#include <mruby/irep.h>
+#include <mruby/numeric.h>
+#include <mruby/debug.h>
 
 #define FLAG_BYTEORDER_NATIVE 2
 #define FLAG_BYTEORDER_NONATIVE 0
 
-#ifdef ENABLE_STDIO
+#ifndef MRB_WITHOUT_FLOAT
+#ifdef MRB_USE_FLOAT
+#define MRB_FLOAT_FMT "%.8e"
+#else
+#define MRB_FLOAT_FMT "%.16e"
+#endif
+#endif
 
 static size_t get_irep_record_size_1(mrb_state *mrb, mrb_irep *irep);
 
 #if UINT32_MAX > SIZE_MAX
 # error This code cannot be built on your environment.
 #endif
-/* 
-int
-f64_isnan(float64_t f)
-{
-    return isNaNF64UI(f.v);
-}
-
-int
-f64_isinf (float64_t f) {
-  if (((f.v>>52) & 0x7FF) == 0x7FF){
-    return 1;
-  }
-  if (((f.v>>52)& 0xFFF) == 0xFFF){
-    return -1;
-  }
-  return 0;
-}
-
-float64_t
-f64_floor (float64_t f) {
-    return f64_roundToInt(f,softfloat_round_min,0);
-}
-float64_t
-f64_ceil (float64_t f) {
-  return f64_roundToInt(f,softfloat_round_max,0);
-}
-
-float64_t
-f64_log(float64_t arg)
-{
-    float64_t integral = {0};
-    int n = 50000;
-    float64_t dx = f64_div(f64_sub(arg,ui32_to_f64(1)),ui32_to_f64(n));
-    if(f64_lt(arg,ui32_to_f64(1))) return i32_to_f64(-1);
-
-    for(int i = 1 ; i-1 < n;i++){
-        integral = f64_add(integral,f64_div(ui32_to_f64(1),f64_add(f64_mul(ui32_to_f64(i),dx),ui32_to_f64(1))));
-    }
-    integral = f64_add(integral,f64_div(ui32_to_f64(1),ui32_to_f64(2)));
-    integral = f64_add(integral,f64_div(ui32_to_f64(1),arg));
-    integral = f64_mul(integral,dx);
-    return integral;
-}
-
-
-float64_t
-f64_log10(float64_t arg)
-{
-
-    float64_t ex = f64_log(arg);
-    float64_t e10 = f64_log(i32_to_f64(10));
-    return f64_div(ex,e10);
-}
-*/
-static int
-mrb_float_to_str(char* buf, mrb_float flo)
-{
-  float64_t n = flo;
-  int max_digits = FLO_MAX_DIGITS;
-
-  if(f64_isnan(n)){
-      strcpy(buf,"NaN");
-    return 3;
-  }
-  else if(f64_isinf(n)){
-    if (f64_lt(n,i64_to_f64(0))){
-        strcpy(buf,"-inf");
-      return 4;
-    }
-    else {
-        strcpy(buf,"inf");
-        return 3;
-    }
-  }
-  else {
-    int digit;
-    int m = 0;
-    int exp;
-    mrb_bool e = FALSE;
-    char s[48];
-    char *c = &s[0];
-    int length = 0;
-
-    if (f64_signbit(n)) {
-      n = f64_mul(n, i64_to_f64(-1));
-      *(c++) = '-';
-    }
-    if (!f64_eq(n,i64_to_f64(0))) {
-      if(!f64_lt(i64_to_f64(1),n)){
-        exp = (int)f64_to_i64(f64_floor(f64_log10(n)));
-      }
-      else {
-          exp = (int)f64_to_i64(f64_mul(f64_ceil(f64_mul(f64_log10(n),i64_to_f64(-1))),i64_to_f64(-1)));
-      }
-    }
-    else {
-      exp = 0;
-    }
-
-    /* preserve significands */
-    if (exp < 0) {
-      int i, beg = -1, end = 0;
-      float64_t f = n;
-      float64_t fd = {0};
-
-      for (i = 0; i < FLO_MAX_DIGITS; ++i) {
-          f = f64_mul(f64_sub(f,fd),i64_to_f64(10));
-          fd = f64_floor(f64_add(f,FLO_EPSILON));
-        if (!f64_eq(fd,i64_to_f64(0))) {
-          if (beg < 0) beg = i;
-          end = i + 1;
-        }
-      }
-      if (beg >= 0) length = end - beg;
-      if (length > FLO_MAX_SIGN_LENGTH) length = FLO_MAX_SIGN_LENGTH;
-    }
-
-    if (abs(exp) + length >= FLO_MAX_DIGITS) {
-      /* exponent representation */
-      e = TRUE;
-      n = f64_div(n,f64_pow(i64_to_f64(10),i64_to_f64(exp)));
-      if (f64_isinf(n)) {
-        if (s < c) {            /* s[0] == '-' */
-          strcpy(buf,"-0.0");
-          return 4;
-        }
-        else {
-          strcpy(buf,"0.0");
-          return 3;
-        }
-      }
-    }
-    else {
-      /* un-exponent (normal) representation */
-      if (exp > 0) {
-        m = exp;
-      }
-    }
-
-    /* puts digits */
-    while (max_digits >= 0) {
-      float64_t weight = (m < 0) ? i64_to_f64(0) : f64_pow(i64_to_f64(10),i64_to_f64(m));
-      float64_t fdigit = (m < 0) ? f64_mul(n,i64_to_f64(10)) : f64_div(n,weight);
-      if(f64_lt(fdigit,i64_to_f64(0))) fdigit = n = i64_to_f64(0);
-      if(m < -1 && f64_lt(fdigit,FLO_EPSILON)){
-        if (e || exp > 0 || m <= -abs(exp)) {
-          break;
-        }
-      }
-      digit = f64_to_i64(f64_floor(f64_add(fdigit,FLO_EPSILON)));
-      if (m == 0 && digit > 9) {
-        n = f64_div(n,i64_to_f64(10));
-        exp++;
-        continue;
-      }
-      *(c++) = '0' + digit;
-      n = (m < 0) ? f64_sub(f64_mul(n,i64_to_f64(10)),i64_to_f64(digit)) : f64_sub(n,f64_mul(i64_to_f64(digit),weight));
-      max_digits--;
-      if (m-- == 0) {
-        *(c++) = '.';
-      }
-    }
-    if (c[-1] == '0') {
-      while (&s[0] < c && c[-1] == '0') {
-        c--;
-      }
-      c++;
-    }
-
-    if (e) {
-      *(c++) = 'e';
-      if (exp > 0) {
-        *(c++) = '+';
-      }
-      else {
-        *(c++) = '-';
-        exp = -exp;
-      }
-
-      if (exp >= 100) {
-        *(c++) = '0' + exp / 100;
-        exp -= exp / 100 * 100;
-      }
-
-      *(c++) = '0' + exp / 10;
-      *(c++) = '0' + exp % 10;
-    }
-
-    *c = '\0';
-    strcpy(buf,s);
-    return c -&s[0];
-  }
-}
 
 static size_t
 write_padding(uint8_t *buf)
@@ -246,7 +56,7 @@ write_irep_header(mrb_state *mrb, mrb_irep *irep, uint8_t *buf)
 {
   uint8_t *cur = buf;
 
-  cur += uint32_to_bin(get_irep_record_size_1(mrb, irep), cur);  /* record size */
+  cur += uint32_to_bin((uint32_t)get_irep_record_size_1(mrb, irep), cur);  /* record size */
   cur += uint16_to_bin((uint16_t)irep->nlocals, cur);  /* number of local variable */
   cur += uint16_to_bin((uint16_t)irep->nregs, cur);  /* number of register variable */
   cur += uint16_to_bin((uint16_t)irep->rlen, cur);  /* number of child irep */
@@ -271,7 +81,7 @@ static ptrdiff_t
 write_iseq_block(mrb_state *mrb, mrb_irep *irep, uint8_t *buf, uint8_t flags)
 {
   uint8_t *cur = buf;
-  uint32_t iseq_no;
+  int iseq_no;
 
   cur += uint32_to_bin(irep->ilen, cur); /* number of opcode */
   cur += write_padding(cur);
@@ -303,10 +113,9 @@ write_iseq_block(mrb_state *mrb, mrb_irep *irep, uint8_t *buf, uint8_t flags)
 static size_t
 get_pool_block_size(mrb_state *mrb, mrb_irep *irep)
 {
+  int pool_no;
   size_t size = 0;
-  size_t pool_no;
   mrb_value str;
-  char buf[32];
 
   size += sizeof(uint32_t); /* plen */
   size += irep->plen * (sizeof(uint8_t) + sizeof(uint16_t)); /* len(n) */
@@ -324,14 +133,16 @@ get_pool_block_size(mrb_state *mrb, mrb_irep *irep)
       }
       break;
 
+#ifndef MRB_WITHOUT_FLOAT
     case MRB_TT_FLOAT:
+      str = mrb_float_to_str(mrb, irep->pool[pool_no], MRB_FLOAT_FMT);
       {
-        int len;
-        len = mrb_float_to_str(buf, mrb_float(irep->pool[pool_no]));
+        mrb_int len = RSTRING_LEN(str);
         mrb_assert_int_fit(mrb_int, len, size_t, SIZE_MAX);
         size += (size_t)len;
       }
       break;
+#endif
 
     case MRB_TT_STRING:
       {
@@ -353,12 +164,11 @@ get_pool_block_size(mrb_state *mrb, mrb_irep *irep)
 static ptrdiff_t
 write_pool_block(mrb_state *mrb, mrb_irep *irep, uint8_t *buf)
 {
-  size_t pool_no;
+  int pool_no;
   uint8_t *cur = buf;
   uint16_t len;
   mrb_value str;
   const char *char_ptr;
-  char char_buf[30];
 
   cur += uint32_to_bin(irep->plen, cur); /* number of pool */
 
@@ -369,41 +179,29 @@ write_pool_block(mrb_state *mrb, mrb_irep *irep, uint8_t *buf)
     case MRB_TT_FIXNUM:
       cur += uint8_to_bin(IREP_TT_FIXNUM, cur); /* data type */
       str = mrb_fixnum_to_str(mrb, irep->pool[pool_no], 10);
-      char_ptr = RSTRING_PTR(str);
-      {
-        mrb_int tlen;
-
-        tlen = RSTRING_LEN(str);
-        mrb_assert_int_fit(mrb_int, tlen, uint16_t, UINT16_MAX);
-        len = (uint16_t)tlen;
-      }
       break;
 
+#ifndef MRB_WITHOUT_FLOAT
     case MRB_TT_FLOAT:
       cur += uint8_to_bin(IREP_TT_FLOAT, cur); /* data type */
-      {
-        int tlen;
-        tlen = mrb_float_to_str(char_buf, mrb_float(irep->pool[pool_no]));
-        mrb_assert_int_fit(int, tlen, uint16_t, UINT16_MAX);
-        len = (uint16_t)tlen;
-      }
-      char_ptr = &char_buf[0];
+      str = mrb_float_to_str(mrb, irep->pool[pool_no], MRB_FLOAT_FMT);
       break;
+#endif
 
     case MRB_TT_STRING:
       cur += uint8_to_bin(IREP_TT_STRING, cur); /* data type */
-      char_ptr = RSTRING_PTR(irep->pool[pool_no]);
-      {
-        mrb_int tlen;
-
-        tlen = RSTRING_LEN(irep->pool[pool_no]);
-        mrb_assert_int_fit(mrb_int, tlen, uint16_t, UINT16_MAX);
-        len = (uint16_t)tlen;
-      }
+      str = irep->pool[pool_no];
       break;
 
     default:
       continue;
+    }
+
+    char_ptr = RSTRING_PTR(str);
+    {
+      mrb_int tlen = RSTRING_LEN(str);
+      mrb_assert_int_fit(mrb_int, tlen, uint16_t, UINT16_MAX);
+      len = (uint16_t)tlen;
     }
 
     cur += uint16_to_bin(len, cur); /* data length */
@@ -421,7 +219,7 @@ static size_t
 get_syms_block_size(mrb_state *mrb, mrb_irep *irep)
 {
   size_t size = 0;
-  uint32_t sym_no;
+  int sym_no;
   mrb_int len;
 
   size += sizeof(uint32_t); /* slen */
@@ -439,7 +237,7 @@ get_syms_block_size(mrb_state *mrb, mrb_irep *irep)
 static ptrdiff_t
 write_syms_block(mrb_state *mrb, mrb_irep *irep, uint8_t *buf)
 {
-  uint32_t sym_no;
+  int sym_no;
   uint8_t *cur = buf;
   const char *name;
 
@@ -481,7 +279,7 @@ static size_t
 get_irep_record_size(mrb_state *mrb, mrb_irep *irep)
 {
   size_t size = 0;
-  size_t irep_no;
+  int irep_no;
 
   size = get_irep_record_size_1(mrb, irep);
   for (irep_no = 0; irep_no < irep->rlen; irep_no++) {
@@ -493,7 +291,7 @@ get_irep_record_size(mrb_state *mrb, mrb_irep *irep)
 static int
 write_irep_record(mrb_state *mrb, mrb_irep *irep, uint8_t *bin, size_t *irep_record_size, uint8_t flags)
 {
-  uint32_t i;
+  int i;
   uint8_t *src = bin;
 
   if (irep == NULL) {
@@ -607,7 +405,7 @@ static size_t
 write_lineno_record_1(mrb_state *mrb, mrb_irep *irep, uint8_t* bin)
 {
   uint8_t *cur = bin;
-  size_t iseq_no;
+  int iseq_no;
   size_t filename_len;
   ptrdiff_t diff;
 
@@ -615,7 +413,8 @@ write_lineno_record_1(mrb_state *mrb, mrb_irep *irep, uint8_t* bin)
 
   if (irep->filename) {
     filename_len = strlen(irep->filename);
-  } else {
+  }
+  else {
     filename_len = 0;
   }
   mrb_assert_int_fit(size_t, filename_len, uint16_t, UINT16_MAX);
@@ -649,8 +448,8 @@ write_lineno_record_1(mrb_state *mrb, mrb_irep *irep, uint8_t* bin)
 static size_t
 write_lineno_record(mrb_state *mrb, mrb_irep *irep, uint8_t* bin)
 {
-  size_t i;
   size_t rlen, size = 0;
+  int i;
 
   rlen = write_lineno_record_1(mrb, irep, bin);
   bin += rlen;
@@ -690,7 +489,7 @@ get_debug_record_size(mrb_state *mrb, mrb_irep *irep)
 {
   size_t ret = 0;
   uint16_t f_idx;
-  size_t i;
+  int i;
 
   ret += sizeof(uint32_t); /* record size */
   ret += sizeof(uint16_t); /* file count */
@@ -738,8 +537,9 @@ static size_t
 get_filename_table_size(mrb_state *mrb, mrb_irep *irep, mrb_sym **fp, uint16_t *lp)
 {
   mrb_sym *filenames = *fp;
-  size_t i, size = 0;
+  size_t size = 0;
   mrb_irep_debug_info *di = irep->debug_info;
+  int i;
 
   mrb_assert(lp);
   for (i = 0; i < di->flen; ++i) {
@@ -812,7 +612,7 @@ write_debug_record_1(mrb_state *mrb, mrb_irep *irep, uint8_t *bin, mrb_sym const
 
   ret = cur - bin;
   mrb_assert_int_fit(ptrdiff_t, ret, uint32_t, UINT32_MAX);
-  uint32_to_bin(ret, bin);
+  uint32_to_bin((uint32_t)ret, bin);
 
   mrb_assert_int_fit(ptrdiff_t, ret, size_t, SIZE_MAX);
   return (size_t)ret;
@@ -822,7 +622,7 @@ static size_t
 write_debug_record(mrb_state *mrb, mrb_irep *irep, uint8_t *bin, mrb_sym const* filenames, uint16_t filenames_len)
 {
   size_t size, len;
-  size_t irep_no;
+  int irep_no;
 
   size = len = write_debug_record_1(mrb, irep, bin, filenames, filenames_len);
   bin += len;
@@ -860,7 +660,7 @@ write_section_debug(mrb_state *mrb, mrb_irep *irep, uint8_t *cur, mrb_sym const 
   for (i = 0; i < filenames_len; ++i) {
     sym = mrb_sym2name_len(mrb, filenames[i], &sym_len);
     mrb_assert(sym);
-    cur += uint16_to_bin(sym_len, cur);
+    cur += uint16_to_bin((uint16_t)sym_len, cur);
     memcpy(cur, sym, sym_len);
     cur += sym_len;
     section_size += sizeof(uint16_t) + sym_len;
@@ -872,7 +672,7 @@ write_section_debug(mrb_state *mrb, mrb_irep *irep, uint8_t *cur, mrb_sym const 
 
   memcpy(header->section_ident, RITE_SECTION_DEBUG_IDENT, sizeof(header->section_ident));
   mrb_assert(section_size <= INT32_MAX);
-  uint32_to_bin(section_size, header->section_size);
+  uint32_to_bin((uint32_t)section_size, header->section_size);
 
   return MRB_DUMP_OK;
 }
@@ -880,7 +680,7 @@ write_section_debug(mrb_state *mrb, mrb_irep *irep, uint8_t *cur, mrb_sym const 
 static void
 create_lv_sym_table(mrb_state *mrb, const mrb_irep *irep, mrb_sym **syms, uint32_t *syms_len)
 {
-  size_t i;
+  int i;
 
   if (*syms == NULL) {
     *syms = (mrb_sym*)mrb_malloc(mrb, sizeof(mrb_sym) * 1);
@@ -913,7 +713,7 @@ write_lv_sym_table(mrb_state *mrb, uint8_t **start, mrb_sym const *syms, uint32_
 
   for (i = 0; i < syms_len; ++i) {
     str = mrb_sym2name_len(mrb, syms[i], &str_len);
-    cur += uint16_to_bin(str_len, cur);
+    cur += uint16_to_bin((uint16_t)str_len, cur);
     memcpy(cur, str, str_len);
     cur += str_len;
   }
@@ -927,7 +727,7 @@ static int
 write_lv_record(mrb_state *mrb, const mrb_irep *irep, uint8_t **start, mrb_sym const *syms, uint32_t syms_len)
 {
   uint8_t *cur = *start;
-  size_t i;
+  int i;
 
   for (i = 0; i + 1 < irep->nlocals; ++i) {
     if (irep->lv[i].name == 0) {
@@ -955,7 +755,8 @@ write_lv_record(mrb_state *mrb, const mrb_irep *irep, uint8_t **start, mrb_sym c
 static size_t
 get_lv_record_size(mrb_state *mrb, mrb_irep *irep)
 {
-  size_t ret = 0, i;
+  size_t ret = 0;
+  int i;
 
   ret += (sizeof(uint16_t) + sizeof(uint16_t)) * (irep->nlocals - 1);
 
@@ -1013,7 +814,7 @@ write_section_lv(mrb_state *mrb, mrb_irep *irep, uint8_t *start, mrb_sym const *
 
   diff = cur - start;
   mrb_assert_int_fit(ptrdiff_t, diff, size_t, SIZE_MAX);
-  uint32_to_bin(diff, header->section_size);
+  uint32_to_bin((uint32_t)diff, header->section_size);
 
 lv_section_exit:
   return result;
@@ -1027,7 +828,6 @@ write_rite_binary_header(mrb_state *mrb, size_t binary_size, uint8_t *bin, uint8
   uint32_t offset;
 
   switch (flags & DUMP_ENDIAN_NAT) {
-  default:
   endian_big:
   case DUMP_ENDIAN_BIG:
     memcpy(header->binary_ident, RITE_BINARY_IDENT, sizeof(header->binary_ident));
@@ -1049,7 +849,7 @@ write_rite_binary_header(mrb_state *mrb, size_t binary_size, uint8_t *bin, uint8
   mrb_assert(binary_size <= UINT32_MAX);
   uint32_to_bin((uint32_t)binary_size, header->binary_size);
 
-  offset = (&(header->binary_crc[0]) - bin) + sizeof(uint16_t);
+  offset = (uint32_t)((&(header->binary_crc[0]) - bin) + sizeof(uint16_t));
   crc = calc_crc_16_ccitt(bin + offset, binary_size - offset, 0);
   uint16_to_bin(crc, header->binary_crc);
 
@@ -1059,7 +859,7 @@ write_rite_binary_header(mrb_state *mrb, size_t binary_size, uint8_t *bin, uint8
 static mrb_bool
 is_debug_info_defined(mrb_irep *irep)
 {
-  size_t i;
+  int i;
 
   if (!irep->debug_info) return FALSE;
   for (i=0; i<irep->rlen; i++) {
@@ -1071,7 +871,7 @@ is_debug_info_defined(mrb_irep *irep)
 static mrb_bool
 is_lv_defined(mrb_irep *irep)
 {
-  size_t i;
+  int i;
 
   if (irep->lv) { return TRUE; }
 
@@ -1187,12 +987,8 @@ error_exit:
     mrb_free(mrb, *bin);
     *bin = NULL;
   }
-  if (lv_syms) {
-    mrb_free(mrb, lv_syms);
-  }
-  if (filenames) {
-    mrb_free(mrb, filenames);
-  }
+  mrb_free(mrb, lv_syms);
+  mrb_free(mrb, filenames);
   return result;
 }
 
@@ -1201,6 +997,8 @@ mrb_dump_irep(mrb_state *mrb, mrb_irep *irep, uint8_t flags, uint8_t **bin, size
 {
   return dump_irep(mrb, irep, dump_flags(flags, FLAG_BYTEORDER_NONATIVE), bin, bin_size);
 }
+
+#ifndef MRB_DISABLE_STDIO
 
 int
 mrb_dump_irep_binary(mrb_state *mrb, mrb_irep *irep, uint8_t flags, FILE* fp)
@@ -1225,22 +1023,6 @@ mrb_dump_irep_binary(mrb_state *mrb, mrb_irep *irep, uint8_t flags, FILE* fp)
 }
 
 static mrb_bool
-is_valid_c_symbol_name(const char *name)
-{
-   const char *c = NULL;
-
-   if (name == NULL || name[0] == '\0') return FALSE;
-   if (!ISALPHA(name[0]) && name[0] != '_') return FALSE;
-
-   c = &name[1];
-   for (; *c != '\0'; ++c) {
-     if (!ISALNUM(*c) && *c != '_') return FALSE;
-   }
-
-   return TRUE;
-}
-
-static mrb_bool
 dump_bigendian_p(uint8_t flags)
 {
   switch (flags & DUMP_ENDIAN_NAT) {
@@ -1261,7 +1043,7 @@ mrb_dump_irep_cfunc(mrb_state *mrb, mrb_irep *irep, uint8_t flags, FILE *fp, con
   size_t bin_size = 0, bin_idx = 0;
   int result;
 
-  if (fp == NULL || initname == NULL || !is_valid_c_symbol_name(initname)) {
+  if (fp == NULL || initname == NULL || initname[0] == '\0') {
     return MRB_DUMP_INVALID_ARGUMENT;
   }
   flags = dump_flags(flags, FLAG_BYTEORDER_NATIVE);
@@ -1286,6 +1068,7 @@ mrb_dump_irep_cfunc(mrb_state *mrb, mrb_irep *irep, uint8_t flags, FILE *fp, con
       return MRB_DUMP_WRITE_FAULT;
     }
     if (fprintf(fp,
+          "extern const uint8_t %s[];\n"
           "const uint8_t\n"
           "#if defined __GNUC__\n"
           "__attribute__((aligned(%u)))\n"
@@ -1293,6 +1076,7 @@ mrb_dump_irep_cfunc(mrb_state *mrb, mrb_irep *irep, uint8_t flags, FILE *fp, con
           "__declspec(align(%u))\n"
           "#endif\n"
           "%s[] = {",
+          initname,
           (uint16_t)MRB_DUMP_ALIGNMENT, (uint16_t)MRB_DUMP_ALIGNMENT, initname) < 0) {
       mrb_free(mrb, bin);
       return MRB_DUMP_WRITE_FAULT;
@@ -1319,4 +1103,4 @@ mrb_dump_irep_cfunc(mrb_state *mrb, mrb_irep *irep, uint8_t flags, FILE *fp, con
   return result;
 }
 
-#endif /* ENABLE_STDIO */
+#endif /* MRB_DISABLE_STDIO */

@@ -2,6 +2,9 @@
 *.bak
 *.d
 *.o
+/benchmark/**/*.dat
+/benchmark/*.pdf
+/benchmark/*.png
 *.orig
 *.pdb
 *.rej
@@ -13,8 +16,12 @@
 .ccmalloc
 .svn
 /.git
+cscope.files
 cscope.out
+tags
 /src/y.tab.c
 /bin
 /build
-/lib
+/mruby-source-*.gem
+doc/api
+.yardoc

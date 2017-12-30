@@ -58,13 +58,14 @@ module Enumerable
 
   def take(n)
     raise TypeError, "no implicit conversion of #{n.class} into Integer" unless n.respond_to?(:to_int)
-    raise ArgumentError, "attempt to take negative size" if n < 0
-
-    n = n.to_int
+    i = n.to_int
+    raise ArgumentError, "attempt to take negative size" if i < 0
     ary = []
+    return ary if i == 0
     self.each do |*val|
-      break if ary.size >= n
       ary << val.__svalue
+      i -= 1
+      break if i == 0
     end
     ary
   end
@@ -77,11 +78,11 @@ module Enumerable
   # Passes elements to the block until the block returns +nil+ or +false+,
   # then stops iterating and returns an array of all prior elements.
   #
-  #  If no block is given, an enumerator is returned instead.
+  # If no block is given, an enumerator is returned instead.
   #
-  #    a = [1, 2, 3, 4, 5, 0]
-  #    a.take_while {|i| i < 3 }   #=> [1, 2]
-
+  #     a = [1, 2, 3, 4, 5, 0]
+  #     a.take_while {|i| i < 3 }   #=> [1, 2]
+  #
   def take_while(&block)
     return to_enum :take_while unless block
 
@@ -94,13 +95,12 @@ module Enumerable
   end
 
   ##
-  # call-seq:
-  #   enum.each_cons(n) {...}   ->  nil
-  #
   # Iterates the given block for each array of consecutive <n>
   # elements.
   #
-  # e.g.:
+  # @return [nil]
+  #
+  # @example
   #     (1..10).each_cons(3) {|a| p a}
   #     # outputs below
   #     [1, 2, 3]
@@ -116,6 +116,7 @@ module Enumerable
     raise TypeError, "no implicit conversion of #{n.class} into Integer" unless n.respond_to?(:to_int)
     raise ArgumentError, "invalid size" if n <= 0
 
+    return to_enum(:each_cons,n) unless block
     ary = []
     n = n.to_int
     self.each do |*val|
@@ -123,15 +124,15 @@ module Enumerable
       ary << val.__svalue
       block.call(ary.dup) if ary.size == n
     end
+    nil
   end
 
   ##
-  # call-seq:
-  #   enum.each_slice(n) {...}  ->  nil
-  #
   # Iterates the given block for each slice of <n> elements.
   #
-  # e.g.:
+  # @return [nil]
+  #
+  # @example
   #     (1..10).each_slice(3) {|a| p a}
   #     # outputs below
   #     [1, 2, 3]
@@ -143,6 +144,7 @@ module Enumerable
     raise TypeError, "no implicit conversion of #{n.class} into Integer" unless n.respond_to?(:to_int)
     raise ArgumentError, "invalid slice size" if n <= 0
 
+    return to_enum(:each_slice,n) unless block
     ary = []
     n = n.to_int
     self.each do |*val|
@@ -153,6 +155,7 @@ module Enumerable
       end
     end
     block.call(ary) unless ary.empty?
+    nil
   end
 
   ##
@@ -164,8 +167,8 @@ module Enumerable
   # block, and values are arrays of elements in <i>enum</i>
   # corresponding to the key.
   #
-  #    (1..6).group_by {|i| i%3}   #=> {0=>[3, 6], 1=>[1, 4], 2=>[2, 5]}
-
+  #     (1..6).group_by {|i| i%3}   #=> {0=>[3, 6], 1=>[1, 4], 2=>[2, 5]}
+  #
   def group_by(&block)
     return to_enum :group_by unless block
 
@@ -198,7 +201,7 @@ module Enumerable
       ary.push([block.call(e), i])
     }
     if ary.size > 1
-      __sort_sub__(ary, ::Array.new(ary.size), 0, 0, ary.size - 1) do |a,b|
+      __sort_sub__(ary, 0, ary.size - 1) do |a,b|
         a <=> b
       end
     end
@@ -214,21 +217,28 @@ module Enumerable
   # Returns the first element, or the first +n+ elements, of the enumerable.
   # If the enumerable is empty, the first form returns <code>nil</code>, and the
   # second form returns an empty array.
-  def first(n=NONE)
-    if n == NONE
+  def first(*args)
+    case args.length
+    when 0
       self.each do |*val|
         return val.__svalue
       end
       return nil
-    else
-      a = []
-      i = 0
+    when 1
+      n = args[0]
+      raise TypeError, "no implicit conversion of #{n.class} into Integer" unless n.respond_to?(:to_int)
+      i = n.to_int
+      raise ArgumentError, "attempt to take negative size" if i < 0
+      ary = []
+      return ary if i == 0
       self.each do |*val|
-        break if n<=i
-        a.push val.__svalue
-        i += 1
+        ary << val.__svalue
+        i -= 1
+        break if i == 0
       end
-      a
+      ary
+    else
+      raise ArgumentError, "wrong number of arguments (given #{args.length}, expected 0..1)"
     end
   end
 
@@ -384,11 +394,11 @@ module Enumerable
         min = val
         first = false
       else
+        val = val.__svalue
         if block
-          max = val.__svalue if block.call(*val, max) > 0
-          min = val.__svalue if block.call(*val, min) < 0
+          max = val if block.call(val, max) > 0
+          min = val if block.call(val, min) < 0
         else
-          val = val.__svalue
           max = val if (val <=> max) > 0
           min = val if (val <=> min) < 0
         end
@@ -515,7 +525,7 @@ module Enumerable
   #
 
   def each_with_object(obj=nil, &block)
-    raise ArgumentError, "wrong number of arguments (0 for 1)" if obj == nil
+    raise ArgumentError, "wrong number of arguments (0 for 1)" if obj.nil?
 
     return to_enum(:each_with_object, obj) unless block
 
@@ -573,35 +583,38 @@ module Enumerable
   #     a.cycle(2) { |x| puts x }  # print, a, b, c, a, b, c.
   #
 
-  def cycle(n=nil, &block)
-    return to_enum(:cycle, n) if !block && n == nil
+  def cycle(nv = nil, &block)
+    return to_enum(:cycle, nv) unless block
+
+    n = nil
+
+    if nv.nil?
+      n = -1
+    else
+      unless nv.respond_to?(:to_int)
+        raise TypeError, "no implicit conversion of #{nv.class} into Integer"
+      end
+      n = nv.to_int
+      unless n.kind_of?(Integer)
+        raise TypeError, "no implicit conversion of #{nv.class} into Integer"
+      end
+      return nil if n <= 0
+    end
 
     ary = []
-    if n == nil
-      self.each do|*val|
-        ary.push val
-        block.call(*val)
-      end
-      loop do
-        ary.each do|e|
-          block.call(*e)
-        end
-      end
-    else
-      raise TypeError, "no implicit conversion of #{n.class} into Integer" unless n.respond_to?(:to_int)
+    each do |*i|
+      ary.push(i)
+      yield(*i)
+    end
+    return nil if ary.empty?
 
-      n = n.to_int
-      self.each do|*val|
-        ary.push val
-      end
-      count = 0
-      while count < n
-        ary.each do|e|
-          block.call(*e)
-        end
-        count += 1
+    while n < 0 || 0 < (n -= 1)
+      ary.each do |i|
+        yield(*i)
       end
     end
+
+    nil
   end
 
   ##
@@ -694,5 +707,21 @@ module Enumerable
 
   def nil.to_h
     {}
+  end
+
+  def uniq(&block)
+    hash = {}
+    if block
+      self.each do|*v|
+        v = v.__svalue
+        hash[block.call(v)] ||= v
+      end
+    else
+      self.each do|*v|
+        v = v.__svalue
+        hash[v] ||= v
+      end
+    end
+    hash.values
   end
 end

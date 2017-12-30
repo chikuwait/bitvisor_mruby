@@ -1,22 +1,18 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include "mruby.h"
-#include "mruby/array.h"
-#include "mruby/compile.h"
-#include "mruby/dump.h"
-#include "mruby/variable.h"
+#include <mruby.h>
+#include <mruby/array.h>
+#include <mruby/compile.h>
+#include <mruby/dump.h>
+#include <mruby/variable.h>
 
-#ifndef ENABLE_STDIO
+#ifdef MRB_DISABLE_STDIO
 static void
 p(mrb_state *mrb, mrb_value obj)
 {
-  mrb_value val;
+  mrb_value val = mrb_inspect(mrb, obj);
 
-  val = mrb_funcall(mrb, obj, "inspect", 0);
-  if (!mrb_string_p(val)) {
-    val = mrb_obj_as_string(mrb, obj);
-  }
   fwrite(RSTRING_PTR(val), RSTRING_LEN(val), 1, stdout);
   putc('\n', stdout);
 }
@@ -163,10 +159,9 @@ cleanup(mrb_state *mrb, struct _args *args)
 {
   if (args->rfp && args->rfp != stdin)
     fclose(args->rfp);
-  if (args->cmdline && !args->fname)
+  if (!args->fname)
     mrb_free(mrb, args->cmdline);
-  if (args->argv)
-    mrb_free(mrb, args->argv);
+  mrb_free(mrb, args->argv);
   mrb_close(mrb);
 }
 
@@ -193,52 +188,65 @@ main(int argc, char **argv)
     usage(argv[0]);
     return n;
   }
-
-  ARGV = mrb_ary_new_capa(mrb, args.argc);
-  for (i = 0; i < args.argc; i++) {
-    mrb_ary_push(mrb, ARGV, mrb_str_new_cstr(mrb, args.argv[i]));
-  }
-  mrb_define_global_const(mrb, "ARGV", ARGV);
-
-  c = mrbc_context_new(mrb);
-  if (args.verbose)
-    c->dump_result = TRUE;
-  if (args.check_syntax)
-    c->no_exec = TRUE;
-
-  /* Set $0 */
-  zero_sym = mrb_intern_lit(mrb, "$0");
-  if (args.rfp) {
-    char *cmdline;
-    cmdline = args.cmdline ? args.cmdline : "-";
-    mrbc_filename(mrb, c, cmdline);
-    mrb_gv_set(mrb, zero_sym, mrb_str_new_cstr(mrb, cmdline));
-  }
   else {
-    mrbc_filename(mrb, c, "-e");
-    mrb_gv_set(mrb, zero_sym, mrb_str_new_lit(mrb, "-e"));
-  }
-
-  /* Load program */
-  if (args.mrbfile) {
-    v = mrb_load_irep_file_cxt(mrb, args.rfp, c);
-  }
-  else if (args.rfp) {
-    v = mrb_load_file_cxt(mrb, args.rfp, c);
-  }
-  else {
-    v = mrb_load_string_cxt(mrb, args.cmdline, c);
-  }
-
-  mrbc_context_free(mrb, c);
-  if (mrb->exc) {
-    if (!mrb_undef_p(v)) {
-      mrb_print_error(mrb);
+    int ai = mrb_gc_arena_save(mrb);
+    ARGV = mrb_ary_new_capa(mrb, args.argc);
+    for (i = 0; i < args.argc; i++) {
+      char* utf8 = mrb_utf8_from_locale(args.argv[i], -1);
+      if (utf8) {
+        mrb_ary_push(mrb, ARGV, mrb_str_new_cstr(mrb, utf8));
+        mrb_utf8_free(utf8);
+      }
     }
-    n = -1;
-  }
-  else if (args.check_syntax) {
-    printf("Syntax OK\n");
+    mrb_define_global_const(mrb, "ARGV", ARGV);
+
+    c = mrbc_context_new(mrb);
+    if (args.verbose)
+      c->dump_result = TRUE;
+    if (args.check_syntax)
+      c->no_exec = TRUE;
+
+    /* Set $0 */
+    zero_sym = mrb_intern_lit(mrb, "$0");
+    if (args.rfp) {
+      const char *cmdline;
+      cmdline = args.cmdline ? args.cmdline : "-";
+      mrbc_filename(mrb, c, cmdline);
+      mrb_gv_set(mrb, zero_sym, mrb_str_new_cstr(mrb, cmdline));
+    }
+    else {
+      mrbc_filename(mrb, c, "-e");
+      mrb_gv_set(mrb, zero_sym, mrb_str_new_lit(mrb, "-e"));
+    }
+
+    /* Load program */
+    if (args.mrbfile) {
+      v = mrb_load_irep_file_cxt(mrb, args.rfp, c);
+    }
+    else if (args.rfp) {
+      v = mrb_load_file_cxt(mrb, args.rfp, c);
+    }
+    else {
+      char* utf8 = mrb_utf8_from_locale(args.cmdline, -1);
+      if (!utf8) abort();
+      v = mrb_load_string_cxt(mrb, utf8, c);
+      mrb_utf8_free(utf8);
+    }
+
+    mrb_gc_arena_restore(mrb, ai);
+    mrbc_context_free(mrb, c);
+    if (mrb->exc) {
+      if (mrb_undef_p(v)) {
+        mrb_p(mrb, mrb_obj_value(mrb->exc));
+      }
+      else {
+        mrb_print_error(mrb);
+      }
+      n = -1;
+    }
+    else if (args.check_syntax) {
+      printf("Syntax OK\n");
+    }
   }
   cleanup(mrb, &args);
 

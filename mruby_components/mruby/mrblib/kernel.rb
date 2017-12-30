@@ -27,11 +27,11 @@ module Kernel
   def loop(&block)
     return to_enum :loop unless block
 
-    while(true)
+    while true
       yield
     end
-  rescue StopIteration
-    nil
+  rescue StopIteration => e
+    e.result
   end
 
   # 11.4.4 Step c)

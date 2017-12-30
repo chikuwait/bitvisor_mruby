@@ -1,9 +1,9 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include "mruby.h"
-#include "mruby/irep.h"
-#include "mruby/dump.h"
+#include <mruby.h>
+#include <mruby/irep.h>
+#include <mruby/dump.h>
 
 struct strip_args {
   int argc_start;
@@ -16,7 +16,7 @@ struct strip_args {
 static void
 irep_remove_lv(mrb_state *mrb, mrb_irep *irep)
 {
-  size_t i;
+  int i;
 
   if (irep->lv) {
     mrb_free(mrb, irep->lv);
