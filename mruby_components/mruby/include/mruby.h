@@ -1247,7 +1247,7 @@ MRB_API void mrb_show_copyright(mrb_state *mrb);
 
 MRB_API mrb_value mrb_format(mrb_state *mrb, const char *format, ...);
 
-#if 0
+#if 1
 /* memcpy and memset does not work with gdb reverse-next on my box */
 /* use naive memcpy and memset instead */
 #undef memcpy
