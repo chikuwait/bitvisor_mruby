@@ -34,7 +34,7 @@ SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
 #include <mruby.h>
 #include <mruby/string.h>
-#include <mruby/softfloat.h>
+#include <bitvisor/softfloat.h>
 #ifndef MRB_WITHOUT_FLOAT
 struct fmt_args {
   mrb_state *mrb;

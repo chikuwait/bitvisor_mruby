@@ -7,7 +7,7 @@
 #ifndef MRB_WITHOUT_FLOAT
 #include <float.h>
 #endif
-#include <mruby/softfloat.h>
+#include <bitvisor/softfloat.h>
 #include <limits.h>
 #include <stdlib.h>
 
