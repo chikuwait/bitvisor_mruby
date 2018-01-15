@@ -70,7 +70,7 @@ mrb_str_byteslice(mrb_state *mrb, mrb_value str)
     }
 #ifndef MRB_WITHOUT_FLOAT
   case MRB_TT_FLOAT:
-    a1 = mrb_fixnum_value((mrb_int)mrb_float(a1));
+    a1 = mrb_fixnum_value(f64_to_i64(mrb_float(a1),softfloat_round_min,1));
     /* fall through */
 #endif
   case MRB_TT_FIXNUM:

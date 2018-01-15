@@ -18,6 +18,8 @@ MRuby::CrossBuild.new('BitVisor') do |conf|
   end
   #conf.cc.gem :core => "mruby-compiler"
   conf.gem :core => "mruby-compiler"
+  conf.gem :github => "chikuwait/mruby-pack"
+  conf.gem :github => "chikuwait/mruby-regexp-pcre"
 
   conf.cc.include_paths <<  "include/bitvisor"
   conf.cc.flags << "-mcmodel=kernel -mno-red-zone -mfpmath=387 -mno-sse -mno-sse2 -mno-mmx -mno-3dnow -msoft-float -fno-asynchronous-unwind-tables -fno-omit-frame-pointer -fno-stack-protector"
