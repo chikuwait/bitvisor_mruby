@@ -34,13 +34,11 @@ static void
 floatmruby_thread(void *arg)
 {
     mrb_state *mrb = mrb_open_allocf(allocate,NULL);
-    printf("mruby opend\n");
     struct RClass *bitvisor;
     if(mrb != NULL){
         bitvisor = mrb_define_class(mrb,"Bitvisor",mrb->object_class);
-        mrb_define_class_method(mrb,bitvisor,"print",bitvisor_print,ARGS_REQ(1));
+        mrb_define_class_method(mrb,bitvisor,"print",bitvisor_print,MRB_ARGS_REQ(1));
         mrb_load_irep(mrb,mrb_float_code);
-
         mrbc_context *cxt = mrbc_context_new(mrb);
         mrb_load_string_cxt(mrb,"",cxt);
         mrbc_context_free(mrb,cxt);
