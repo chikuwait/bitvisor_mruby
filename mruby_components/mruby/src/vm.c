@@ -2432,14 +2432,7 @@ RETRY_TRY_BLOCK:
       }
 
 #ifndef MRB_WITHOUT_FLOAT
-      if (f64_eq(y,i64_to_f64(0))) {
-        if (f64_lt(i64_to_f64(0),x)) f = INFINITY;
-        else if (f64_lt(x,i64_to_f64(0))) f = NEGATIVE_INFINITY;
-        else /* if (x == 0) */ f = NAN;
-      }
-      else {
         f = f64_div(x,y);
-      }
       SET_FLOAT_VALUE(mrb, regs[a], f);
 #endif
       NEXT;
