@@ -51,10 +51,10 @@ heartbeat_thread(void *arg)
     struct RClass *bitvisor;
     if(mrb != NULL){
         bitvisor = mrb_define_class(mrb,"Bitvisor",mrb->object_class);
-        mrb_define_class_method(mrb,bitvisor,"print",bitvisor_print,ARGS_REQ(1));
-        mrb_define_class_method(mrb,bitvisor,"get_time",bitvisor_get_time,ARGS_NONE());
-        mrb_define_class_method(mrb,bitvisor,"get_dest_macaddr",bitvisor_sendnic,ARGS_NONE());
-        mrb_define_class_method(mrb,bitvisor,"set_schedule",bitvisor_set_schedule,ARGS_NONE());
+        mrb_define_class_method(mrb,bitvisor,"print",bitvisor_print,MRB_ARGS_REQ(1));
+        mrb_define_class_method(mrb,bitvisor,"get_time",bitvisor_get_time,MRB_ARGS_NONE());
+        mrb_define_class_method(mrb,bitvisor,"get_dest_macaddr",bitvisor_sendnic,MRB_ARGS_NONE());
+        mrb_define_class_method(mrb,bitvisor,"set_schedule",bitvisor_set_schedule,MRB_ARGS_NONE());
         mrb_load_irep(mrb,mrb_beat_code);
 
         mrbc_context *cxt = mrbc_context_new(mrb);

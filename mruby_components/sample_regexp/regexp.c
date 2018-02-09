@@ -9,7 +9,7 @@
 #include <mruby/string.h>
 #include <mruby/irep.h>
 #include <mruby/proc.h>
-uint8_t mrb_beat_code[];
+uint8_t mrb_regexp_code[];
 void
 *allocate(struct mrb_state *mrb, void *p, size_t size, void *ud)
 {
@@ -45,18 +45,17 @@ bitvisor_set_schedule(mrb_state *mrb,mrb_value self)
 mrb_value mrb_get_backtrace(mrb_state *mrb, mrb_value self);
 
 static void
-heartbeat_thread(void *arg)
+regexp_thread(void *arg)
 {
     mrb_state *mrb = mrb_open_allocf(allocate,NULL);
 
-    int ai = mrb_gc_arena_save(mrb);
     struct RClass *bitvisor;
     if(mrb != NULL){
         bitvisor = mrb_define_class(mrb,"Bitvisor",mrb->object_class);
-        mrb_define_class_method(mrb,bitvisor,"print",bitvisor_print,ARGS_REQ(1));
-        mrb_define_class_method(mrb,bitvisor,"get_time",bitvisor_get_time,ARGS_NONE());
-        mrb_define_class_method(mrb,bitvisor,"set_schedule",bitvisor_set_schedule,ARGS_NONE());
-        mrb_load_irep(mrb,mrb_beat_code);
+        mrb_define_class_method(mrb,bitvisor,"print",bitvisor_print,MRB_ARGS_REQ(1));
+        mrb_define_class_method(mrb,bitvisor,"get_time",bitvisor_get_time,MRB_ARGS_NONE());
+        mrb_define_class_method(mrb,bitvisor,"set_schedule",bitvisor_set_schedule,MRB_ARGS_NONE());
+        mrb_load_irep(mrb,mrb_regexp_code);
 
         mrbc_context *cxt = mrbc_context_new(mrb);
         mrbc_filename(mrb, cxt, "foo.rb");
@@ -77,9 +76,9 @@ heartbeat_thread(void *arg)
 }
 
 static void
-heartbeat_kernel_init(void)
+regexp_kernel_init(void)
 {
     printf("heartbeat_kernel_init invoked.\n");
-    thread_new(heartbeat_thread, NULL, VMM_STACKSIZE);
+    thread_new(regexp_thread, NULL, VMM_STACKSIZE);
 }
-INITFUNC("vmmcal0", heartbeat_kernel_init);
+INITFUNC("vmmcal0", regexp_kernel_init);

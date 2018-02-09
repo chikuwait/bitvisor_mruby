@@ -1,10 +1,39 @@
 /*
 ** mt19937ar.c - MT Random functions
 **
-** See Copyright Notice in mruby.h
+** Copyright (C) 1997 - 2016, Makoto Matsumoto and Takuji Nishimura,
+** All rights reserved.
+**
+** Permission is hereby granted, free of charge, to any person obtaining
+** a copy of this software and associated documentation files (the
+** "Software"), to deal in the Software without restriction, including
+** without limitation the rights to use, copy, modify, merge, publish,
+** distribute, sublicense, and/or sell copies of the Software, and to
+** permit persons to whom the Software is furnished to do so, subject to
+** the following conditions:
+**
+** The above copyright notice and this permission notice shall be
+** included in all copies or substantial portions of the Software.
+**
+** THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,
+** EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
+** MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.
+** IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY
+** CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT,
+** TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE
+** SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+**
+** [ MIT license: http://www.opensource.org/licenses/mit-license.php ]
+**
+** Any feedback is very welcome.
+** http://www.math.sci.hiroshima-u.ac.jp/~m-mat/MT/emt.html
+** email: m-mat @ math.sci.hiroshima-u.ac.jp (remove space)
+**
+** This version is modified by mruby developers. If you see any problem,
+** contact us first at https://github.com/mruby/mruby/issues
 */
 
-#include "mruby.h"
+#include <mruby.h>
 #include "mt19937ar.h"
 
 /* Period parameters */
@@ -23,8 +52,7 @@ void mrb_random_init_genrand(mt_state *t, unsigned long s)
 {
     t->mt[0]= s & 0xffffffffUL;
     for (t->mti=1; t->mti<N; t->mti++) {
-        t->mt[t->mti] =
-	    (1812433253UL * (t->mt[t->mti-1] ^ (t->mt[t->mti-1] >> 30)) + t->mti);
+        t->mt[t->mti] = (1812433253UL * (t->mt[t->mti-1] ^ (t->mt[t->mti-1] >> 30)) + t->mti);
         t->mt[t->mti] &= 0xffffffffUL;
     }
 }
@@ -82,8 +110,7 @@ void init_genrand(unsigned long s)
 {
     mt[0]= s & 0xffffffffUL;
     for (mti=1; mti<N; mti++) {
-        mt[mti] =
-	    (1812433253UL * (mt[mti-1] ^ (mt[mti-1] >> 30)) + mti);
+        mt[mti] = (1812433253UL * (mt[mti-1] ^ (mt[mti-1] >> 30)) + mti);
         /* See Knuth TAOCP Vol2. 3rd Ed. P.106 for multiplier. */
         /* In the previous versions, MSBs of the seed affect   */
         /* only MSBs of the array mt[].                        */

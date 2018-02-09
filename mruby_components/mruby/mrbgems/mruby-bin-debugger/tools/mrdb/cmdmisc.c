@@ -8,7 +8,7 @@
 #include <string.h>
 
 #include "apilist.h"
-#include "mruby/compile.h"
+#include <mruby/compile.h>
 
 typedef struct help_msg {
   const char *cmd1;
@@ -33,7 +33,7 @@ static help_msg help_msg_list[] = {
     "\n"
     "Continue program stopped by a breakpoint.\n"
     "If N, which is non negative value, is passed,\n"
-    "proceed program until the N-th breakpoint is comming.\n"
+    "proceed program until the N-th breakpoint is coming.\n"
     "If N is not passed, N is assumed 1.\n"
   },
   {
@@ -333,7 +333,7 @@ check_cmd_pattern(const char *pattern, const char *cmd)
   if (pattern == NULL || cmd == NULL) {
     return FALSE;
   }
-  if((lbracket = strchr(pattern, '[')) == NULL) {
+  if ((lbracket = strchr(pattern, '[')) == NULL) {
     return !strcmp(pattern, cmd);
   }
   if ((rbracket = strchr(pattern, ']')) == NULL) {

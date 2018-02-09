@@ -10,7 +10,7 @@ class Hash
   #  hash.
   #
   # ISO 15.2.13.4.1
-  def == (hash)
+  def ==(hash)
     return true if self.equal?(hash)
     begin
       hash = hash.to_hash
@@ -54,7 +54,7 @@ class Hash
   #
   # ISO 15.2.13.4.8
   def delete(key, &block)
-    if block && ! self.has_key?(key)
+    if block && !self.has_key?(key)
       block.call(key)
     else
       self.__delete(key)
@@ -74,8 +74,8 @@ class Hash
   #
   # If no block is given, an enumerator is returned instead.
   #
-  #  h = { "a" => 100, "b" => 200 }
-  #  h.each {|key, value| puts "#{key} is #{value}" }
+  #     h = { "a" => 100, "b" => 200 }
+  #     h.each {|key, value| puts "#{key} is #{value}" }
   #
   # <em>produces:</em>
   #
@@ -84,7 +84,7 @@ class Hash
   #
   # ISO 15.2.13.4.9
   def each(&block)
-    return to_enum :each unless block_given?
+    return to_enum :each unless block
 
     keys = self.keys
     vals = self.values
@@ -117,7 +117,7 @@ class Hash
   #
   # ISO 15.2.13.4.10
   def each_key(&block)
-    return to_enum :each_key unless block_given?
+    return to_enum :each_key unless block
 
     self.keys.each{|k| block.call(k)}
     self
@@ -143,7 +143,7 @@ class Hash
   #
   # ISO 15.2.13.4.11
   def each_value(&block)
-    return to_enum :each_value unless block_given?
+    return to_enum :each_value unless block
 
     self.keys.each{|k| block.call(self[k])}
     self
@@ -154,6 +154,7 @@ class Hash
   #
   # ISO 15.2.13.4.23
   def replace(hash)
+    raise TypeError, "can't convert argument into Hash" unless hash.respond_to?(:to_hash)
     self.clear
     hash = hash.to_hash
     hash.each_key{|k|
@@ -200,7 +201,7 @@ class Hash
     }.join(", ")+"}"
   end
   ##
-  # Return the contents of this hash as a string. 
+  # Return the contents of this hash as a string.
  #
   # ISO 15.2.13.4.30 (x)
   def inspect
@@ -223,12 +224,12 @@ class Hash
   #
   #  1.8/1.9 Hash#reject! returns Hash; ISO says nothing.
   #
-  def reject!(&b)
-    return to_enum :reject! unless block_given?
+  def reject!(&block)
+    return to_enum :reject! unless block
 
     keys = []
     self.each{|k,v|
-      if b.call([k, v])
+      if block.call([k, v])
         keys.push(k)
       end
     }
@@ -254,12 +255,12 @@ class Hash
   #
   #  1.8/1.9 Hash#reject returns Hash; ISO says nothing.
   #
-  def reject(&b)
-    return to_enum :reject unless block_given?
+  def reject(&block)
+    return to_enum :reject unless block
 
     h = {}
     self.each{|k,v|
-      unless b.call([k, v])
+      unless block.call([k, v])
         h[k] = v
       end
     }
@@ -276,12 +277,12 @@ class Hash
   #
   #  1.9 Hash#select! returns Hash; ISO says nothing.
   #
-  def select!(&b)
-    return to_enum :select! unless block_given?
+  def select!(&block)
+    return to_enum :select! unless block
 
     keys = []
     self.each{|k,v|
-      unless b.call([k, v])
+      unless block.call([k, v])
         keys.push(k)
       end
     }
@@ -307,16 +308,39 @@ class Hash
   #
   #  1.9 Hash#select returns Hash; ISO says nothing
   #
-  def select(&b)
-    return to_enum :select unless block_given?
+  def select(&block)
+    return to_enum :select unless block
 
     h = {}
     self.each{|k,v|
-      if b.call([k, v])
+      if block.call([k, v])
         h[k] = v
       end
     }
     h
+  end
+
+  ##
+  #  call-seq:
+  #    hsh.rehash -> hsh
+  #
+  #  Rebuilds the hash based on the current hash values for each key. If
+  #  values of key objects have changed since they were inserted, this
+  #  method will reindex <i>hsh</i>.
+  #
+  #     h = {"AAA" => "b"}
+  #     h.keys[0].chop!
+  #     h          #=> {"AA"=>"b"}
+  #     h["AA"]    #=> nil
+  #     h.rehash   #=> {"AA"=>"b"}
+  #     h["AA"]    #=> "b"
+  #
+  def rehash
+    h = {}
+    self.each{|k,v|
+      h[k] = v
+    }
+    self.replace(h)
   end
 
   def __update(h)

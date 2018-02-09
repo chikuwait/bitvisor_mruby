@@ -338,10 +338,13 @@ assert('Exception 19') do
       begin
         1 * "b"
       ensure
-        @e = self.z
+        @e = self.zz
       end
     end
 
+    def zz
+      true
+    end
     def z
       true
     end
@@ -350,7 +353,7 @@ assert('Exception 19') do
 end
 
 assert('Exception#inspect without message') do
-  assert_equal "Exception: Exception", Exception.new.inspect
+  assert_equal "Exception", Exception.new.inspect
 end
 
 assert('Exception#backtrace') do
@@ -373,12 +376,47 @@ assert('Raise in ensure') do
   end
 end
 
-assert('Raise in rescue') do
-  assert_raise(ArgumentError) do
-    begin
-      raise "" # RuntimeError
-    rescue
-      raise ArgumentError
+def backtrace_available?
+  begin
+    raise "XXX"
+  rescue => exception
+    not exception.backtrace.empty?
+  end
+end
+
+assert('GC in rescue') do
+  skip "backtrace isn't available" unless backtrace_available?
+
+  line = nil
+  begin
+    [1].each do
+      [2].each do
+        [3].each do
+          line = __LINE__; raise "XXX"
+        end
+      end
     end
+  rescue => exception
+    GC.start
+    assert_equal("#{__FILE__}:#{line}:in call",
+                 exception.backtrace.first)
+  end
+end
+
+assert('Method call in rescue') do
+  skip "backtrace isn't available" unless backtrace_available?
+
+  line = nil
+  begin
+    [1].each do
+      [2].each do
+        line = __LINE__; raise "XXX"
+      end
+    end
+  rescue => exception
+    [3].each do
+    end
+    assert_equal("#{__FILE__}:#{line}:in call",
+                 exception.backtrace.first)
   end
 end

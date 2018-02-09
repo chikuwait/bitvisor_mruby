@@ -1,0 +1,3 @@
+#define DBL_DIG 15
+#define LDBL_MAX_EXP 16384
+#define LDBL_MANT_DIG 64

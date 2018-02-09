@@ -148,6 +148,9 @@ end
 
 assert('Float#to_i', '15.2.9.3.14') do
   assert_equal(3, 3.123456789.to_i)
+  assert_raise(FloatDomainError) { Float::INFINITY.to_i }
+  assert_raise(FloatDomainError) { (-Float::INFINITY).to_i }
+  assert_raise(FloatDomainError) { Float::NAN.to_i }
 end
 
 assert('Float#truncate', '15.2.9.3.15') do
@@ -177,4 +180,26 @@ assert('Float#nan?') do
   assert_false 0.0.nan?
   assert_false (1.0/0.0).nan?
   assert_false (-1.0/0.0).nan?
+end
+
+assert('Float#<<') do
+  # Left Shift by one
+  assert_equal 46, 23.0 << 1
+
+  # Left Shift by a negative is Right Shift
+  assert_equal 23, 46.0 << -1
+end
+
+assert('Float#>>') do
+  # Right Shift by one
+  assert_equal 23, 46.0 >> 1
+
+  # Right Shift by a negative is Left Shift
+  assert_equal 46, 23.0 >> -1
+
+  # Don't raise on large Right Shift
+  assert_equal 0, 23.0 >> 128
+
+  # Don't raise on large Right Shift
+  assert_equal(-1, -23.0 >> 128)
 end

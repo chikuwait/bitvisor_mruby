@@ -4,18 +4,18 @@
 ** See Copyright Notice in mruby.h
 */
 
-#include <ctype.h>
 #include <string.h>
-#include "mruby.h"
-#include "mruby/array.h"
-#include "mruby/string.h"
-#include "mruby/class.h"
-#include "mruby/variable.h"
-#include "mruby/hash.h"
-#include "mruby/range.h"
+#include <mruby.h>
+#include <mruby/array.h>
+#include <mruby/string.h>
+#include <mruby/class.h>
+#include <mruby/variable.h>
+#include <mruby/hash.h>
+#include <mruby/range.h>
+#include <mruby/proc.h>
 
-#define RSTRUCT_LEN(st) mrb_ary_ptr(st)->len
-#define RSTRUCT_PTR(st) mrb_ary_ptr(st)->ptr
+#define RSTRUCT_LEN(st) RARRAY_LEN(st)
+#define RSTRUCT_PTR(st) RARRAY_PTR(st)
 
 static struct RClass *
 struct_class(mrb_state *mrb)
@@ -41,9 +41,9 @@ struct_ivar_get(mrb_state *mrb, mrb_value c, mrb_sym id)
 }
 
 static mrb_value
-mrb_struct_s_members(mrb_state *mrb, mrb_value klass)
+struct_s_members(mrb_state *mrb, struct RClass *klass)
 {
-  mrb_value members = struct_ivar_get(mrb, klass, mrb_intern_lit(mrb, "__members__"));
+  mrb_value members = struct_ivar_get(mrb, mrb_obj_value(klass), mrb_intern_lit(mrb, "__members__"));
 
   if (mrb_nil_p(members)) {
     mrb_raise(mrb, E_TYPE_ERROR, "uninitialized struct");
@@ -55,11 +55,17 @@ mrb_struct_s_members(mrb_state *mrb, mrb_value klass)
 }
 
 static mrb_value
-mrb_struct_members(mrb_state *mrb, mrb_value s)
+struct_members(mrb_state *mrb, mrb_value s)
 {
-  mrb_value members = mrb_struct_s_members(mrb, mrb_obj_value(mrb_obj_class(mrb, s)));
-  if (!strcmp(mrb_class_name(mrb, mrb_obj_class(mrb, s)), "Struct")) {
-    if (RSTRUCT_LEN(s) != RARRAY_LEN(members)) {
+  mrb_value members = struct_s_members(mrb, mrb_obj_class(mrb, s));
+  if (!mrb_array_p(s)) {
+    mrb_raise(mrb, E_TYPE_ERROR, "corrupted struct");
+  }
+  if (RSTRUCT_LEN(s) != RARRAY_LEN(members)) {
+    if (RSTRUCT_LEN(s) == 0) {  /* probably uninitialized */
+      mrb_ary_resize(mrb, s, RARRAY_LEN(members));
+    }
+    else {
       mrb_raisef(mrb, E_TYPE_ERROR,
                  "struct size differs (%S required %S given)",
                  mrb_fixnum_value(RARRAY_LEN(members)), mrb_fixnum_value(RSTRUCT_LEN(s)));
@@ -73,10 +79,20 @@ mrb_struct_s_members_m(mrb_state *mrb, mrb_value klass)
 {
   mrb_value members, ary;
 
-  members = mrb_struct_s_members(mrb, klass);
+  members = struct_s_members(mrb, mrb_class_ptr(klass));
   ary = mrb_ary_new_capa(mrb, RARRAY_LEN(members));
   mrb_ary_replace(mrb, ary, members);
   return ary;
+}
+
+static void
+mrb_struct_modify(mrb_state *mrb, mrb_value strct)
+{
+  if (MRB_FROZEN_P(mrb_basic_ptr(strct))) {
+    mrb_raise(mrb, E_RUNTIME_ERROR, "can't modify frozen struct");
+  }
+
+  mrb_write_barrier(mrb, mrb_basic_ptr(strct));
 }
 
 /* 15.2.18.4.6  */
@@ -93,64 +109,20 @@ mrb_struct_s_members_m(mrb_state *mrb, mrb_value klass)
  */
 
 static mrb_value
-mrb_struct_members_m(mrb_state *mrb, mrb_value obj)
+mrb_struct_members(mrb_state *mrb, mrb_value obj)
 {
   return mrb_struct_s_members_m(mrb, mrb_obj_value(mrb_obj_class(mrb, obj)));
 }
 
 static mrb_value
-mrb_struct_getmember(mrb_state *mrb, mrb_value obj, mrb_sym id)
-{
-  mrb_value members, slot, *ptr;
-  const mrb_value *ptr_members;
-  mrb_int i, len;
-
-  ptr = RSTRUCT_PTR(obj);
-  members = mrb_struct_members(mrb, obj);
-  ptr_members = RARRAY_PTR(members);
-  slot = mrb_symbol_value(id);
-  len = RARRAY_LEN(members);
-  for (i=0; i<len; i++) {
-    if (mrb_obj_equal(mrb, ptr_members[i], slot)) {
-      return ptr[i];
-    }
-  }
-  mrb_raisef(mrb, E_INDEX_ERROR, "`%S' is not a struct member", mrb_sym2str(mrb, id));
-  return mrb_nil_value();       /* not reached */
-}
-
-static mrb_value
 mrb_struct_ref(mrb_state *mrb, mrb_value obj)
 {
-  return mrb_struct_getmember(mrb, obj, mrb->c->ci->mid);
+  mrb_int i = mrb_fixnum(mrb_proc_cfunc_env_get(mrb, 0));
+  mrb_value *ptr = RSTRUCT_PTR(obj);
+
+  if (!ptr) return mrb_nil_value();
+  return ptr[i];
 }
-
-static mrb_value mrb_struct_ref0(mrb_state* mrb, mrb_value obj) {return RSTRUCT_PTR(obj)[0];}
-static mrb_value mrb_struct_ref1(mrb_state* mrb, mrb_value obj) {return RSTRUCT_PTR(obj)[1];}
-static mrb_value mrb_struct_ref2(mrb_state* mrb, mrb_value obj) {return RSTRUCT_PTR(obj)[2];}
-static mrb_value mrb_struct_ref3(mrb_state* mrb, mrb_value obj) {return RSTRUCT_PTR(obj)[3];}
-static mrb_value mrb_struct_ref4(mrb_state* mrb, mrb_value obj) {return RSTRUCT_PTR(obj)[4];}
-static mrb_value mrb_struct_ref5(mrb_state* mrb, mrb_value obj) {return RSTRUCT_PTR(obj)[5];}
-static mrb_value mrb_struct_ref6(mrb_state* mrb, mrb_value obj) {return RSTRUCT_PTR(obj)[6];}
-static mrb_value mrb_struct_ref7(mrb_state* mrb, mrb_value obj) {return RSTRUCT_PTR(obj)[7];}
-static mrb_value mrb_struct_ref8(mrb_state* mrb, mrb_value obj) {return RSTRUCT_PTR(obj)[8];}
-static mrb_value mrb_struct_ref9(mrb_state* mrb, mrb_value obj) {return RSTRUCT_PTR(obj)[9];}
-
-#define numberof(array) (int)(sizeof(array) / sizeof((array)[0]))
-#define N_REF_FUNC numberof(ref_func)
-
-static const mrb_func_t ref_func[] = {
-  mrb_struct_ref0,
-  mrb_struct_ref1,
-  mrb_struct_ref2,
-  mrb_struct_ref3,
-  mrb_struct_ref4,
-  mrb_struct_ref5,
-  mrb_struct_ref6,
-  mrb_struct_ref7,
-  mrb_struct_ref8,
-  mrb_struct_ref9,
-};
 
 static mrb_sym
 mrb_id_attrset(mrb_state *mrb, mrb_sym id)
@@ -172,39 +144,22 @@ mrb_id_attrset(mrb_state *mrb, mrb_sym id)
 }
 
 static mrb_value
-mrb_struct_set(mrb_state *mrb, mrb_value obj, mrb_value val)
-{
-  const char *name;
-  mrb_int i, len, slen;
-  mrb_sym mid;
-  mrb_value members, slot, *ptr;
-  const mrb_value *ptr_members;
-
-  /* get base id */
-  name = mrb_sym2name_len(mrb, mrb->c->ci->mid, &slen);
-  mid = mrb_intern(mrb, name, slen-1); /* omit last "=" */
-
-  members = mrb_struct_members(mrb, obj);
-  ptr_members = RARRAY_PTR(members);
-  len = RARRAY_LEN(members);
-  ptr = RSTRUCT_PTR(obj);
-  for (i=0; i<len; i++) {
-    slot = ptr_members[i];
-    if (mrb_symbol(slot) == mid) {
-      return ptr[i] = val;
-    }
-  }
-  mrb_raisef(mrb, E_INDEX_ERROR, "`%S' is not a struct member", mrb_sym2str(mrb, mid));
-  return mrb_nil_value();       /* not reached */
-}
-
-static mrb_value
 mrb_struct_set_m(mrb_state *mrb, mrb_value obj)
 {
+  mrb_int i = mrb_fixnum(mrb_proc_cfunc_env_get(mrb, 0));
+  mrb_value *ptr;
   mrb_value val;
 
   mrb_get_args(mrb, "o", &val);
-  return mrb_struct_set(mrb, obj, val);
+  mrb_struct_modify(mrb, obj);
+  ptr = RSTRUCT_PTR(obj);
+  if (ptr == NULL || i >= RSTRUCT_LEN(obj)) {
+    mrb_ary_set(mrb, obj, i, val);
+  }
+  else {
+    ptr[i] = val;
+  }
+  return val;
 }
 
 static mrb_bool
@@ -234,20 +189,21 @@ make_struct_define_accessors(mrb_state *mrb, mrb_value members, struct RClass *c
     const char *name = mrb_sym2name_len(mrb, id, NULL);
 
     if (is_local_id(mrb, name) || is_const_id(mrb, name)) {
-      if (i < N_REF_FUNC) {
-        mrb_define_method_id(mrb, c, id, ref_func[i], MRB_ARGS_NONE());
-      }
-      else {
-        mrb_define_method_id(mrb, c, id, mrb_struct_ref, MRB_ARGS_NONE());
-      }
-      mrb_define_method_id(mrb, c, mrb_id_attrset(mrb, id), mrb_struct_set_m, MRB_ARGS_REQ(1));
+      mrb_method_t m;
+      mrb_value at = mrb_fixnum_value(i);
+      struct RProc *aref = mrb_proc_new_cfunc_with_env(mrb, mrb_struct_ref, 1, &at);
+      struct RProc *aset = mrb_proc_new_cfunc_with_env(mrb, mrb_struct_set_m, 1, &at);
+      MRB_METHOD_FROM_PROC(m, aref);
+      mrb_define_method_raw(mrb, c, id, m);
+      MRB_METHOD_FROM_PROC(m, aset);
+      mrb_define_method_raw(mrb, c, mrb_id_attrset(mrb, id), m);
       mrb_gc_arena_restore(mrb, ai);
     }
   }
 }
 
 static mrb_value
-make_struct(mrb_state *mrb, mrb_value name, mrb_value members, struct RClass * klass)
+make_struct(mrb_state *mrb, mrb_value name, mrb_value members, struct RClass *klass)
 {
   mrb_value nstr;
   mrb_sym id;
@@ -265,7 +221,7 @@ make_struct(mrb_state *mrb, mrb_value name, mrb_value members, struct RClass * k
     }
     if (mrb_const_defined_at(mrb, mrb_obj_value(klass), id)) {
       mrb_warn(mrb, "redefining constant Struct::%S", name);
-      /* ?rb_mod_remove_const(klass, mrb_sym2name(mrb, id)); */
+      mrb_const_remove(mrb, mrb_obj_value(klass), id);
     }
     c = mrb_define_class_under(mrb, klass, RSTRING_PTR(name), klass);
   }
@@ -328,40 +284,33 @@ mrb_struct_s_def(mrb_state *mrb, mrb_value klass)
   mrb_int argc;
 
   name = mrb_nil_value();
-  rest = mrb_nil_value();
   mrb_get_args(mrb, "*&", &argv, &argc, &b);
   if (argc == 0) { /* special case to avoid crash */
-    rest = mrb_ary_new(mrb);
+    mrb_raise(mrb, E_ARGUMENT_ERROR, "wrong number of arguments");
   }
   else {
-    if (argc > 0) name = argv[0];
-    if (argc > 1) rest = argv[1];
-    if (mrb_array_p(rest)) {
-      if (!mrb_nil_p(name) && mrb_symbol_p(name)) {
-        /* 1stArgument:symbol -> name=nil rest=argv[0]-[n] */
-        mrb_ary_unshift(mrb, rest, name);
+    pargv = argv;
+    argcnt = argc;
+    if (argc > 0) {
+      name = argv[0];
+      if (mrb_symbol_p(name)) {
+        /* 1stArgument:symbol -> name=nil rest=argv[0..n] */
         name = mrb_nil_value();
       }
-    }
-    else {
-      pargv = &argv[1];
-      argcnt = argc-1;
-      if (!mrb_nil_p(name) && mrb_symbol_p(name)) {
-        /* 1stArgument:symbol -> name=nil rest=argv[0]-[n] */
-        name = mrb_nil_value();
-        pargv = &argv[0];
-        argcnt++;
+      else {
+        pargv++;
+        argcnt--;
       }
-      rest = mrb_ary_new_from_values(mrb, argcnt, pargv);
     }
+    rest = mrb_ary_new_from_values(mrb, argcnt, pargv);
     for (i=0; i<RARRAY_LEN(rest); i++) {
       id = mrb_obj_to_sym(mrb, RARRAY_PTR(rest)[i]);
       mrb_ary_set(mrb, rest, i, mrb_symbol_value(id));
     }
   }
-  st = make_struct(mrb, name, rest, struct_class(mrb));
+  st = make_struct(mrb, name, rest, mrb_class_ptr(klass));
   if (!mrb_nil_p(b)) {
-    mrb_yield_with_class(mrb, b, 1, &st, st, mrb_class_ptr(klass));
+    mrb_yield_with_class(mrb, b, 1, &st, st, mrb_class_ptr(st));
   }
 
   return st;
@@ -403,12 +352,12 @@ mrb_struct_initialize_withArg(mrb_state *mrb, mrb_int argc, mrb_value *argv, mrb
 }
 
 static mrb_value
-mrb_struct_initialize_m(mrb_state *mrb, /*int argc, mrb_value *argv,*/ mrb_value self)
+mrb_struct_initialize(mrb_state *mrb, mrb_value self)
 {
   mrb_value *argv;
   mrb_int argc;
 
-  mrb_get_args(mrb, "*", &argv, &argc);
+  mrb_get_args(mrb, "*!", &argv, &argc);
   return mrb_struct_initialize_withArg(mrb, argc, argv, self);
 }
 
@@ -418,7 +367,6 @@ static mrb_value
 mrb_struct_init_copy(mrb_state *mrb, mrb_value copy)
 {
   mrb_value s;
-  mrb_int i, len;
 
   mrb_get_args(mrb, "o", &s);
 
@@ -429,33 +377,28 @@ mrb_struct_init_copy(mrb_state *mrb, mrb_value copy)
   if (!mrb_array_p(s)) {
     mrb_raise(mrb, E_TYPE_ERROR, "corrupted struct");
   }
-  if (RSTRUCT_LEN(copy) != RSTRUCT_LEN(s)) {
-    mrb_raise(mrb, E_TYPE_ERROR, "struct size mismatch");
-  }
-  len = RSTRUCT_LEN(copy);
-  for (i = 0; i < len; i++) {
-    mrb_ary_set(mrb, copy, i, RSTRUCT_PTR(s)[i]);
-  }
+  mrb_ary_replace(mrb, copy, s);
   return copy;
 }
 
 static mrb_value
-struct_aref_sym(mrb_state *mrb, mrb_value s, mrb_sym id)
+struct_aref_sym(mrb_state *mrb, mrb_value obj, mrb_sym id)
 {
-  mrb_value *ptr, members;
+  mrb_value members, *ptr;
   const mrb_value *ptr_members;
   mrb_int i, len;
 
-  ptr = RSTRUCT_PTR(s);
-  members = mrb_struct_members(mrb, s);
+  members = struct_members(mrb, obj);
   ptr_members = RARRAY_PTR(members);
   len = RARRAY_LEN(members);
+  ptr = RSTRUCT_PTR(obj);
   for (i=0; i<len; i++) {
-    if (mrb_symbol(ptr_members[i]) == id) {
+    mrb_value slot = ptr_members[i];
+    if (mrb_symbol_p(slot) && mrb_symbol(slot) == id) {
       return ptr[i];
     }
   }
-  mrb_raisef(mrb, E_INDEX_ERROR, "no member '%S' in struct", mrb_sym2str(mrb, id));
+  mrb_raisef(mrb, E_INDEX_ERROR, "'%S' is not a struct member", mrb_sym2str(mrb, id));
   return mrb_nil_value();       /* not reached */
 }
 
@@ -503,7 +446,7 @@ mrb_struct_aref(mrb_state *mrb, mrb_value s)
     mrb_value sym = mrb_check_intern_str(mrb, idx);
 
     if (mrb_nil_p(sym)) {
-      mrb_raisef(mrb, E_INDEX_ERROR, "no member '%S' in struct", idx);
+      mrb_name_error(mrb, mrb_intern_str(mrb, idx), "no member '%S' in struct", idx);
     }
     idx = sym;
   }
@@ -520,22 +463,18 @@ mrb_struct_aset_sym(mrb_state *mrb, mrb_value s, mrb_sym id, mrb_value val)
   const mrb_value *ptr_members;
   mrb_int i, len;
 
-  members = mrb_struct_members(mrb, s);
+  members = struct_members(mrb, s);
   len = RARRAY_LEN(members);
-  if (RSTRUCT_LEN(s) != len) {
-    mrb_raisef(mrb, E_TYPE_ERROR,
-               "struct size differs (%S required %S given)",
-               mrb_fixnum_value(len), mrb_fixnum_value(RSTRUCT_LEN(s)));
-  }
   ptr = RSTRUCT_PTR(s);
   ptr_members = RARRAY_PTR(members);
   for (i=0; i<len; i++) {
     if (mrb_symbol(ptr_members[i]) == id) {
+      mrb_struct_modify(mrb, s);
       ptr[i] = val;
       return val;
     }
   }
-  mrb_raisef(mrb, E_INDEX_ERROR, "no member '%S' in struct", mrb_sym2str(mrb, id));
+  mrb_name_error(mrb, id, "no member '%S' in struct", mrb_sym2str(mrb, id));
   return val;                   /* not reach */
 }
 
@@ -574,7 +513,7 @@ mrb_struct_aset(mrb_state *mrb, mrb_value s)
     mrb_value sym = mrb_check_intern_str(mrb, idx);
 
     if (mrb_nil_p(sym)) {
-      mrb_raisef(mrb, E_INDEX_ERROR, "no member '%S' in struct", idx);
+      mrb_name_error(mrb, mrb_intern_str(mrb, idx), "no member '%S' in struct", idx);
     }
     idx = sym;
   }
@@ -594,6 +533,7 @@ mrb_struct_aset(mrb_state *mrb, mrb_value s)
                "offset %S too large for struct(size:%S)",
                mrb_fixnum_value(i), mrb_fixnum_value(RSTRUCT_LEN(s)));
   }
+  mrb_struct_modify(mrb, s);
   return RSTRUCT_PTR(s)[i] = val;
 }
 
@@ -621,34 +561,27 @@ mrb_struct_equal(mrb_state *mrb, mrb_value s)
   mrb_value s2;
   mrb_value *ptr, *ptr2;
   mrb_int i, len;
-  mrb_bool equal_p;
 
   mrb_get_args(mrb, "o", &s2);
   if (mrb_obj_equal(mrb, s, s2)) {
-    equal_p = 1;
+    return mrb_true_value();
   }
-  else if (!strcmp(mrb_class_name(mrb, mrb_obj_class(mrb, s)), "Struct") ||
-           mrb_obj_class(mrb, s) != mrb_obj_class(mrb, s2)) {
-    equal_p = 0;
+  if (mrb_obj_class(mrb, s) != mrb_obj_class(mrb, s2)) {
+    return mrb_false_value();
   }
-  else if (RSTRUCT_LEN(s) != RSTRUCT_LEN(s2)) {
+  if (RSTRUCT_LEN(s) != RSTRUCT_LEN(s2)) {
     mrb_bug(mrb, "inconsistent struct"); /* should never happen */
-    equal_p = 0; /* This substuture is just to suppress warnings. never called. */
   }
-  else {
-    ptr = RSTRUCT_PTR(s);
-    ptr2 = RSTRUCT_PTR(s2);
-    len = RSTRUCT_LEN(s);
-    equal_p = 1;
-    for (i=0; i<len; i++) {
-      if (!mrb_equal(mrb, ptr[i], ptr2[i])) {
-        equal_p = 0;
-        break;
-      }
+  ptr = RSTRUCT_PTR(s);
+  ptr2 = RSTRUCT_PTR(s2);
+  len = RSTRUCT_LEN(s);
+  for (i=0; i<len; i++) {
+    if (!mrb_equal(mrb, ptr[i], ptr2[i])) {
+      return mrb_false_value();
     }
   }
 
-  return mrb_bool_value(equal_p);
+  return mrb_true_value();
 }
 
 /* 15.2.18.4.12(x)  */
@@ -665,34 +598,27 @@ mrb_struct_eql(mrb_state *mrb, mrb_value s)
   mrb_value s2;
   mrb_value *ptr, *ptr2;
   mrb_int i, len;
-  mrb_bool eql_p;
 
   mrb_get_args(mrb, "o", &s2);
   if (mrb_obj_equal(mrb, s, s2)) {
-    eql_p = 1;
+    return mrb_true_value();
   }
-  else if (strcmp(mrb_class_name(mrb, mrb_obj_class(mrb, s2)), "Struct") ||
-           mrb_obj_class(mrb, s) != mrb_obj_class(mrb, s2)) {
-    eql_p = 0;
+  if (mrb_obj_class(mrb, s) != mrb_obj_class(mrb, s2)) {
+    return mrb_false_value();
   }
-  else if (RSTRUCT_LEN(s) != RSTRUCT_LEN(s2)) {
+  if (RSTRUCT_LEN(s) != RSTRUCT_LEN(s2)) {
     mrb_bug(mrb, "inconsistent struct"); /* should never happen */
-    eql_p = 0; /* This substuture is just to suppress warnings. never called. */
   }
-  else {
-    ptr = RSTRUCT_PTR(s);
-    ptr2 = RSTRUCT_PTR(s2);
-    len = RSTRUCT_LEN(s);
-    eql_p = 1;
-    for (i=0; i<len; i++) {
-      if (!mrb_eql(mrb, ptr[i], ptr2[i])) {
-        eql_p = 0;
-        break;
-      }
+  ptr = RSTRUCT_PTR(s);
+  ptr2 = RSTRUCT_PTR(s2);
+  len = RSTRUCT_LEN(s);
+  for (i=0; i<len; i++) {
+    if (!mrb_eql(mrb, ptr[i], ptr2[i])) {
+      return mrb_false_value();
     }
   }
 
-  return mrb_bool_value(eql_p);
+  return mrb_true_value();
 }
 
 /*
@@ -733,7 +659,7 @@ mrb_struct_to_h(mrb_state *mrb, mrb_value self)
   mrb_value members, ret;
   mrb_int i;
 
-  members = mrb_struct_s_members(mrb, mrb_obj_value(mrb_class(mrb, self)));
+  members = struct_members(mrb, self);
   ret = mrb_hash_new_capa(mrb, RARRAY_LEN(members));
 
   for (i = 0; i < RARRAY_LEN(members); ++i) {
@@ -762,8 +688,8 @@ mrb_struct_values_at(mrb_state *mrb, mrb_value self)
  *  The <code>Struct</code> class is a generator of specific classes,
  *  each one of which is defined to hold a set of variables and their
  *  accessors. In these examples, we'll call the generated class
- *  ``<i>Customer</i>Class,'' and we'll show an example instance of that
- *  class as ``<i>Customer</i>Inst.''
+ *  "<i>Customer</i>Class," and we'll show an example instance of that
+ *  class as "<i>Customer</i>Inst."
  *
  *  In the descriptions that follow, the parameter <i>symbol</i> refers
  *  to a symbol, which is either a quoted string or a
@@ -774,14 +700,15 @@ mrb_mruby_struct_gem_init(mrb_state* mrb)
 {
   struct RClass *st;
   st = mrb_define_class(mrb, "Struct",  mrb->object_class);
+  MRB_SET_INSTANCE_TT(st, MRB_TT_ARRAY);
 
   mrb_define_class_method(mrb, st, "new",             mrb_struct_s_def,       MRB_ARGS_ANY());  /* 15.2.18.3.1  */
 
   mrb_define_method(mrb, st,       "==",              mrb_struct_equal,       MRB_ARGS_REQ(1)); /* 15.2.18.4.1  */
   mrb_define_method(mrb, st,       "[]",              mrb_struct_aref,        MRB_ARGS_REQ(1)); /* 15.2.18.4.2  */
   mrb_define_method(mrb, st,       "[]=",             mrb_struct_aset,        MRB_ARGS_REQ(2)); /* 15.2.18.4.3  */
-  mrb_define_method(mrb, st,       "members",         mrb_struct_members_m,   MRB_ARGS_NONE()); /* 15.2.18.4.6  */
-  mrb_define_method(mrb, st,       "initialize",      mrb_struct_initialize_m,MRB_ARGS_ANY());  /* 15.2.18.4.8  */
+  mrb_define_method(mrb, st,       "members",         mrb_struct_members,     MRB_ARGS_NONE()); /* 15.2.18.4.6  */
+  mrb_define_method(mrb, st,       "initialize",      mrb_struct_initialize,  MRB_ARGS_ANY());  /* 15.2.18.4.8  */
   mrb_define_method(mrb, st,       "initialize_copy", mrb_struct_init_copy,   MRB_ARGS_REQ(1)); /* 15.2.18.4.9  */
   mrb_define_method(mrb, st,       "eql?",            mrb_struct_eql,         MRB_ARGS_REQ(1)); /* 15.2.18.4.12(x)  */
 
@@ -790,7 +717,7 @@ mrb_mruby_struct_gem_init(mrb_state* mrb)
   mrb_define_method(mrb, st,        "to_a",           mrb_struct_to_a,        MRB_ARGS_NONE());
   mrb_define_method(mrb, st,        "values",         mrb_struct_to_a,        MRB_ARGS_NONE());
   mrb_define_method(mrb, st,        "to_h",           mrb_struct_to_h,        MRB_ARGS_NONE());
-  mrb_define_method(mrb, st,        "values_at",      mrb_struct_values_at,   MRB_ARGS_NONE());
+  mrb_define_method(mrb, st,        "values_at",      mrb_struct_values_at,   MRB_ARGS_ANY());
 }
 
 void

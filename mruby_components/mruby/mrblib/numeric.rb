@@ -45,10 +45,10 @@ module Integral
   #
   # ISO 15.2.8.3.15
   def downto(num, &block)
-    return to_enum(:downto, num) unless block_given?
+    return to_enum(:downto, num) unless block
 
     i = self.to_i
-    while(i >= num)
+    while i >= num
       block.call(i)
       i -= 1
     end
@@ -70,7 +70,7 @@ module Integral
   #
   # ISO 15.2.8.3.22
   def times &block
-    return to_enum :times unless block_given?
+    return to_enum :times unless block
 
     i = 0
     while i < self
@@ -86,10 +86,10 @@ module Integral
   #
   # ISO 15.2.8.3.27
   def upto(num, &block)
-    return to_enum(:upto, num) unless block_given?
+    return to_enum(:upto, num) unless block
 
     i = self.to_i
-    while(i <= num)
+    while i <= num
       block.call(i)
       i += 1
     end
@@ -100,18 +100,25 @@ module Integral
   # Calls the given block from +self+ to +num+
   # incremented by +step+ (default 1).
   #
-  def step(num, step=1, &block)
+  def step(num=nil, step=1, &block)
     raise ArgumentError, "step can't be 0" if step == 0
-    return to_enum(:step, num, step) unless block_given?
+    return to_enum(:step, num, step) unless block
 
-    i = if num.kind_of? Float then self.to_f else self end
+    i = if class_defined?("Float") && num.kind_of?(Float) then self.to_f else self end
+    if num == nil
+      while true
+        block.call(i)
+        i+=step
+      end
+      return self
+    end
     if step > 0
-      while(i <= num)
+      while i <= num
         block.call(i)
         i += step
       end
     else
-      while(i >= num)
+      while i >= num
         block.call(i)
         i += step
       end
@@ -153,28 +160,4 @@ class Integer
   #
   # ISO 15.2.8.3.26
   alias truncate floor
-end
-
-##
-# Float
-#
-# ISO 15.2.9
-class Float
-  include Integral
-  # mruby special - since mruby integers may be upgraded to floats,
-  # floats should be compatible to integers.
-  def >> other
-    n = self.to_i
-    other.to_i.times {
-      n /= 2
-    }
-    n
-  end
-  def << other
-    n = self.to_i
-    other.to_i.times {
-      n *= 2
-    }
-    n.to_i
-  end
 end

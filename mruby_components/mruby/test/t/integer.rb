@@ -7,56 +7,65 @@ end
 
 assert('Integer#+', '15.2.8.3.1') do
   a = 1+1
-  b = 1+1.0
+  b = 1+1.0 if class_defined?("Float")
 
   assert_equal 2, a
-  assert_equal 2.0, b
+  assert_equal 2.0, b if class_defined?("Float")
 
   assert_raise(TypeError){ 0+nil }
   assert_raise(TypeError){ 1+nil }
 
   c = Mrbtest::FIXNUM_MAX + 1
   d = Mrbtest::FIXNUM_MAX.__send__(:+, 1)
-  e = Mrbtest::FIXNUM_MAX + 1.0
-  assert_equal Float, c.class
-  assert_equal Float, d.class
-  assert_float e, c
-  assert_float e, d
+
+  if class_defined?("Float")
+    e = Mrbtest::FIXNUM_MAX + 1.0
+    assert_equal Float, c.class
+    assert_equal Float, d.class
+    assert_float e, c
+    assert_float e, d
+  end
 end
 
 assert('Integer#-', '15.2.8.3.2') do
   a = 2-1
-  b = 2-1.0
+  b = 2-1.0 if class_defined?("Float")
 
   assert_equal 1, a
-  assert_equal 1.0, b
+  assert_equal 1.0, b if class_defined?("Float")
 
   c = Mrbtest::FIXNUM_MIN - 1
   d = Mrbtest::FIXNUM_MIN.__send__(:-, 1)
-  e = Mrbtest::FIXNUM_MIN - 1.0
-  assert_equal Float, c.class
-  assert_equal Float, d.class
-  assert_float e, c
-  assert_float e, d
+
+  if class_defined?("Float")
+    e = Mrbtest::FIXNUM_MIN - 1.0
+    assert_equal Float, c.class
+    assert_equal Float, d.class
+    assert_float e, c
+    assert_float e, d
+  end
 end
 
 assert('Integer#*', '15.2.8.3.3') do
   a = 1*1
-  b = 1*1.0
+  b = 1*1.0 if class_defined?("Float")
 
   assert_equal 1, a
-  assert_equal 1.0, b
+  assert_equal 1.0, b if class_defined?("Float")
 
   assert_raise(TypeError){ 0*nil }
   assert_raise(TypeError){ 1*nil }
 
   c = Mrbtest::FIXNUM_MAX * 2
   d = Mrbtest::FIXNUM_MAX.__send__(:*, 2)
-  e = Mrbtest::FIXNUM_MAX * 2.0
-  assert_equal Float, c.class
-  assert_equal Float, d.class
-  assert_float e, c
-  assert_float e, d
+
+  if class_defined?("Float")
+    e = Mrbtest::FIXNUM_MAX * 2.0
+    assert_equal Float, c.class
+    assert_equal Float, d.class
+    assert_float e, c
+    assert_float e, d
+  end
 end
 
 assert('Integer#/', '15.2.8.3.4') do
@@ -71,10 +80,24 @@ assert('Integer#%', '15.2.8.3.5') do
   a = 1%1
   b = 1%1.0
   c = 2%4
+  d = 2%5
+  e = 2%-5
+  f = -2%5
+  g = -2%-5
+  h =  2%-2
+  i = -2%2
+  j = -2%-2
 
   assert_equal 0, a
   assert_equal 0.0, b
   assert_equal 2, c
+  assert_equal 2, d
+  assert_equal(-3, e)
+  assert_equal 3, f
+  assert_equal(-2, g)
+  assert_equal 0, h
+  assert_equal 0, i
+  assert_equal 0, j
 end
 
 assert('Integer#<=>', '15.2.9.3.6') do
@@ -134,10 +157,11 @@ assert('Integer#<<', '15.2.8.3.12') do
   # Left Shift by a negative is Right Shift
   assert_equal 23, 46 << -1
 
-  # Raise when shift is too large
-  assert_raise(RangeError) do
-    2 << 128
-  end
+  # Left Shift by 31 is bitShift overflow to SignedInt
+  assert_equal 2147483648, 1 << 31
+
+  # -3 Left Shift by 30 is bitShift overflow to SignedInt
+  assert_equal(-3221225472, -3 << 30)
 end
 
 assert('Integer#>>', '15.2.8.3.13') do
@@ -151,11 +175,6 @@ assert('Integer#>>', '15.2.8.3.13') do
 
   # Don't raise on large Right Shift
   assert_equal 0, 23 >> 128
-
-  # Raise when shift is too large
-  assert_raise(RangeError) do
-    2 >> -128
-  end
 end
 
 assert('Integer#ceil', '15.2.8.3.14') do
@@ -208,7 +227,7 @@ end
 
 assert('Integer#to_f', '15.2.8.3.23') do
   assert_equal 1.0, 1.to_f
-end
+end if class_defined?("Float")
 
 assert('Integer#to_i', '15.2.8.3.24') do
   assert_equal 1, 1.to_i

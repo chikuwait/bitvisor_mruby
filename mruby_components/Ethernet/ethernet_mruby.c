@@ -47,18 +47,18 @@ mrb_value bitvisor_sendnic(mrb_state *mrb,mrb_value self);
 mrb_state *mrb;
 
 static void
-heartbeat_thread(void *arg)
+ethernet_thread(void *arg)
 {
     mrb = mrb_open_allocf(allocate,NULL);
     printf("mruby opend\n");
     struct RClass *bitvisor;
     if(mrb != NULL){
         bitvisor = mrb_define_class(mrb,"Bitvisor",mrb->object_class);
-        mrb_define_class_method(mrb,bitvisor,"print",bitvisor_print,ARGS_REQ(1));
-        mrb_define_class_method(mrb,bitvisor,"get_time",bitvisor_get_time,ARGS_NONE());
-        mrb_define_class_method(mrb,bitvisor,"get_dest_macaddr",bitvisor_sendnic,ARGS_NONE());
-        mrb_define_class_method(mrb,bitvisor,"set_schedule",bitvisor_set_schedule,ARGS_NONE());
-        mrb_load_irep(mrb,mrb_beat_code);
+        mrb_define_class_method(mrb,bitvisor,"print",bitvisor_print,MRB_ARGS_REQ(1));
+        mrb_define_class_method(mrb,bitvisor,"get_time",bitvisor_get_time,MRB_ARGS_NONE());
+        mrb_define_class_method(mrb,bitvisor,"get_dest_macaddr",bitvisor_sendnic,MRB_ARGS_NONE());
+        mrb_define_class_method(mrb,bitvisor,"set_schedule",bitvisor_set_schedule,MRB_ARGS_NONE());
+        mrb_load_irep(mrb,mrb_ethernet_code);
 
         mrbc_context *cxt = mrbc_context_new(mrb);
         mrb_load_string_cxt(mrb,"",cxt);
@@ -69,9 +69,9 @@ heartbeat_thread(void *arg)
 }
 
 static void
-heartbeat_kernel_init(void)
+ethernet_kernel_init(void)
 {
-    printf("heartbeat_kernel_init invoked.\n");
-    thread_new(heartbeat_thread, NULL, VMM_STACKSIZE);
+    printf("ethernet_kernel_init invoked.\n");
+    thread_new(ethernet_thread, NULL, VMM_STACKSIZE);
 }
-INITFUNC("vmmcal0", heartbeat_kernel_init);
+INITFUNC("vmmcal0", ethernet_kernel_init);
