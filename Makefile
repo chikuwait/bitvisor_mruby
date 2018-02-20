@@ -16,7 +16,6 @@ lds    = $(NAME).lds
 target = $(elf)
 
 subdirs-1 += core drivers
-subdirs-1 += mruby_components/heart_beat
 subdirs-$(CONFIG_STORAGE) += storage
 subdirs-$(CONFIG_VPN) += vpn
 subdirs-$(CONFIG_IDMAN) += idman

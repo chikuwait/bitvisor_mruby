@@ -14,6 +14,8 @@ dir := $(DIR:/=)/
 dir := $(dir:./%=%)
 outo = output.o
 outa = output.a
+mrba = libmruby.a
+floata = libsoftfloat.a
 outp = processes.o
 target = $(outo)
 defouto = $(dir)$(outo)
