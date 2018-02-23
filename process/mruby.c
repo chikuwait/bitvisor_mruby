@@ -36,31 +36,33 @@ int
 _start(int a1,int a2)
 {
 
-    printf("mruby process registered\n");
+    printf("mruby VM process registered.\n\n");
     mrb_state *mrb = mrb_open_allocf(allocate,NULL);
-    printf("mruby open\n");
+    mrbc_context *cxt = mrbc_context_new(mrb);
+
     struct RClass *bitvisor;
     int ai = mrb_gc_arena_save(mrb);
 
     if(mrb != NULL){
         bitvisor = mrb_define_class(mrb,"Bitvisor",mrb->object_class);
         mrb_define_class_method(mrb,bitvisor,"print",bitvisor_print,MRB_ARGS_REQ(1));
+
         mrb_load_irep(mrb,mrb_hello_code);
+        if(mrb->exc != 0){
+            mrb_value exc = mrb_obj_value(mrb->exc);
+            mrb_value inspect = mrb_inspect(mrb, exc);
 
-        mrb_value exc = mrb_obj_value(mrb->exc);
-        mrb_value backtrace = mrb_get_backtrace(mrb,exc);
-        printf("%s\n",mrb_str_to_cstr(mrb, mrb_inspect(mrb, backtrace)));
-        mrb_value inspect = mrb_inspect(mrb, exc);
-        printf("%s\n",mrb_str_to_cstr(mrb, inspect));
+            printf("[%s]\n",mrb_str_to_cstr(mrb, inspect));
+            mrb_value backtrace = mrb_get_backtrace(mrb,exc);
+            printf("[%s]\n",mrb_str_to_cstr(mrb, mrb_inspect(mrb, backtrace)));
 
-        // 例外をクリア
-        mrb->exc = 0;
-        mrb_gc_arena_restore(mrb, ai);
-
-        mrbc_context *cxt = mrbc_context_new(mrb);
-        mrb_load_string_cxt(mrb,"",cxt);
-        mrbc_context_free(mrb,cxt);
+        // clear exception
+           mrb->exc = 0;
+           mrb_gc_arena_restore(mrb, ai);
+           mrbc_context_free(mrb,cxt);
+        }
         mrb_close(mrb);
     }
+    printf("\nTerminate the mruby VM process.\n");
     return 0;
 }
