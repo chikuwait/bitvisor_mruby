@@ -16,6 +16,9 @@
 #include <mruby/numeric.h>
 #include <mruby/string.h>
 #include <mruby/class.h>
+#ifdef MRB_DISABLE_STDIO
+#include <printf.h>
+#endif
 
 #ifndef MRB_WITHOUT_FLOAT
 #ifdef MRB_USE_FLOAT
@@ -58,7 +61,31 @@ f64_isfinite(float64_t f)
         return 0;
     return 1;
 }
+float64_t
+f64_log(float64_t arg)
+{
+    float64_t integral = {0};
+    int n = 50000;
+    float64_t dx = f64_div(f64_sub(arg,ui32_to_f64(1)),ui32_to_f64(n));
+    if(f64_lt(arg,ui32_to_f64(1))) return i32_to_f64(-1);
 
+    for(int i = 1 ; i-1 < n;i++){
+        integral = f64_add(integral,f64_div(ui32_to_f64(1),f64_add(f64_mul(ui32_to_f64(i),dx),ui32_to_f64(1))));
+    }
+    integral = f64_add(integral,f64_div(ui32_to_f64(1),ui32_to_f64(2)));
+    integral = f64_add(integral,f64_div(ui32_to_f64(1),arg));
+    integral = f64_mul(integral,dx);
+    return integral;
+}
+
+    float64_t
+f64_log10(float64_t arg)
+{
+
+    float64_t ex = f64_log(arg);
+    float64_t e10 = f64_log(i32_to_f64(10));
+    return f64_div(ex,e10);
+}
 float64_t
 f64_floor (float64_t f) {
     return f64_roundToInt(f,softfloat_round_min,0);
