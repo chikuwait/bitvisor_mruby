@@ -26,18 +26,22 @@ SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
 */
 
-#include <limits.h>
+//#include <limits.h>
 #if BITVISOR_PROCESS
   #include <lib_string.h>
 #else
   #include <string.h>
 #endif
-#include <stdint.h>
+//#include <stdint.h>
 #include <float.h>
-#include <ctype.h>
+//#include <ctype.h>
+#ifdef MRB_DISABLE_STDIO
+#include <printf.h>
+#endif
 
 #include <mruby.h>
 #include <mruby/string.h>
+#include <mruby/numeric.h>
 #include <bitvisor/softfloat.h>
 #ifndef MRB_WITHOUT_FLOAT
 struct fmt_args {
@@ -63,7 +67,6 @@ struct fmt_args {
 #define f64_to_i64(x) f64_to_i64((x),softfloat_round_min,1)
 #define __HI(x) *(1+(int *)&x.v)
 #define __LO(x) *(int *)&x.v
-
 static float64_t two54 =  {0x40000000000000}; /*  0x43500000, 0x00000000 */
 float64_t frexp(float64_t x, int *eptr)
 {
@@ -151,7 +154,6 @@ fmt_fp(struct fmt_args *f, extFloat80_t y, ptrdiff_t p, uint8_t fl, int t)
   } else if (fl & PAD_POS) {
     prefix+=6;
   } else prefix++, pl=0;
-
   if (!extF80_isfinite(y)) {
     const char *ss = (t&32)?"inf":"INF";
     if (!extF80_eq(y,y)) ss=(t&32)?"nan":"NAN";
@@ -164,7 +166,6 @@ fmt_fp(struct fmt_args *f, extFloat80_t y, ptrdiff_t p, uint8_t fl, int t)
 
   y = f64_to_extF80(f64_mul(frexp(extF80_to_f64(y), &e2),i64_to_f64(2)));
   if (!extF80_eq(y,i64_to_extF80(0))) e2--;
-
   if ((t|32)=='a') {
     extFloat80_t round = i64_to_extF80(8);
     ptrdiff_t re;
@@ -375,7 +376,6 @@ static int
 fmt_core(struct fmt_args *f, const char *fmt, mrb_float flo)
 {
   ptrdiff_t p;
-
   if (*fmt != '%') {
     return -1;
   }
@@ -389,7 +389,6 @@ fmt_core(struct fmt_args *f, const char *fmt, mrb_float flo)
   else {
     p = -1;
   }
-
   switch (*fmt) {
   case 'e': case 'f': case 'g': case 'a':
   case 'E': case 'F': case 'G': case 'A':
@@ -402,13 +401,134 @@ fmt_core(struct fmt_args *f, const char *fmt, mrb_float flo)
 mrb_value
 mrb_float_to_str(mrb_state *mrb, mrb_value flo, const char *fmt)
 {
-  struct fmt_args f;
+    float64_t n = mrb_float(flo);
+    int max_digits = FLO_MAX_DIGITS;
+    if(f64_isnan(n)){
+        return mrb_str_new_lit(mrb, "NaN");
+    }
+    else if(f64_isinf(n)){
+        if (f64_lt(n,i64_to_f64(0))){
+            return mrb_str_new_lit(mrb, "-inf");
+        }
+        else {
+            return mrb_str_new_lit(mrb, "inf");
+        }
+    }
+    else {
+        int digit;
+        int m = 0;
+        int exp;
+        mrb_bool e = FALSE;
+        char s[48];
+        char *c = &s[0];
+        int length = 0;
 
-  f.mrb = mrb;
-  f.str = mrb_str_new_capa(mrb, 24);
-  if (fmt_core(&f, fmt, mrb_float(flo)) < 0) {
-    mrb_raise(mrb, E_ARGUMENT_ERROR, "invalid format string");
-  }
-  return f.str;
+        if (f64_signbit(n)) {
+            n = f64_mul(n, i64_to_f64(-1));
+            *(c++) = '-';
+        }
+        if (!f64_eq(n,i64_to_f64(0))) {
+            if(!f64_lt(i64_to_f64(1),n)){
+                exp = (int)f64_to_i64(f64_floor(f64_log10(n)));
+            }
+            else {
+                exp = (int)f64_to_i64(f64_mul(f64_ceil(f64_mul(f64_log10(n),i64_to_f64(-1))),i64_to_f64(-1)));
+            }
+        }
+        else {
+            exp = 0;
+        }
+
+        /*  preserve significands */
+        if (exp < 0) {
+            int i, beg = -1, end = 0;
+            float64_t f = n;
+            float64_t fd = {0};
+
+            for (i = 0; i < FLO_MAX_DIGITS; ++i) {
+                f = f64_mul(f64_sub(f,fd),i64_to_f64(10));
+                fd = f64_floor(f64_add(f,FLO_EPSILON));
+                if (!f64_eq(fd,i64_to_f64(0))) {
+                    if (beg < 0) beg = i;
+                    end = i + 1;
+                }
+            }
+            if (beg >= 0) length = end - beg;
+            if (length > FLO_MAX_SIGN_LENGTH) length = FLO_MAX_SIGN_LENGTH;
+        }
+
+        if (abs(exp) + length >= FLO_MAX_DIGITS) {
+            /*  exponent representation */
+            e = TRUE;
+            n = f64_div(n,f64_pow(i64_to_f64(10),i64_to_f64(exp)));
+            if (f64_isinf(n)) {
+                if (s < c) {            /*  s[0] == '-' */
+                    return mrb_str_new_lit(mrb, "-0.0");
+                }
+                else {
+                    return mrb_str_new_lit(mrb, "0.0");
+                }
+            }
+        }
+        else {
+            /*  un-exponent (normal) representation */
+            if (exp > 0) {
+                m = exp;
+            }
+        }
+
+        /*  puts digits */
+        while (max_digits >= 0) {
+            float64_t weight = (m < 0) ? i64_to_f64(0) : f64_pow(i64_to_f64(10),i64_to_f64(m));
+            float64_t fdigit = (m < 0) ? f64_mul(n,i64_to_f64(10)) : f64_div(n,weight);
+            if(f64_lt(fdigit,i64_to_f64(0))) fdigit = n = i64_to_f64(0);
+            if(m < -1 && f64_lt(fdigit,FLO_EPSILON)){
+                if (e || exp > 0 || m <= -abs(exp)) {
+                    break;
+                }
+            }
+            digit = f64_to_i64(f64_floor(f64_add(fdigit,FLO_EPSILON)));
+            if (m == 0 && digit > 9) {
+                n = f64_div(n,i64_to_f64(10));
+                exp++;
+                continue;
+            }
+            *(c++) = '0' + digit;
+            n = (m < 0) ? f64_sub(f64_mul(n,i64_to_f64(10)),i64_to_f64(digit)) : f64_sub(n,f64_mul(i64_to_f64(digit),weight));
+            max_digits--;
+            if (m-- == 0) {
+                *(c++) = '.';
+            }
+        }
+        if (c[-1] == '0') {
+            while (&s[0] < c && c[-1] == '0') {
+                c--;
+            }
+            c++;
+        }
+
+        if (e) {
+            *(c++) = 'e';
+            if (exp > 0) {
+                *(c++) = '+';
+            }
+            else {
+                *(c++) = '-';
+                exp = -exp;
+            }
+
+            if (exp >= 100) {
+                *(c++) = '0' + exp / 100;
+                exp -= exp / 100 * 100;
+            }
+
+            *(c++) = '0' + exp / 10;
+            *(c++) = '0' + exp % 10;
+        }
+
+        *c = '\0';
+
+        return mrb_str_new(mrb, &s[0], c - &s[0]);
+    }
 }
 #endif
