@@ -6,6 +6,11 @@
 
 #include <stddef.h>
 #include <stdarg.h>
+#define va_list __builtin_va_list
+#define va_start(PTR, LASTARG) __builtin_va_start (PTR, LASTARG)
+#define va_end(PTR) __builtin_va_end (PTR)
+#define va_arg(PTR, TYPE)   __builtin_va_arg (PTR, TYPE)
+
 #include <mruby.h>
 #include <mruby/array.h>
 #include <mruby/class.h>
@@ -20,6 +25,9 @@
 #include <mruby/opcode.h>
 #include "value_array.h"
 #include <mruby/throw.h>
+#ifdef MRB_DISABLE_STDIO
+#include <printf.h>
+#endif
 
 #ifdef MRB_DISABLE_STDIO
 #if defined(__cplusplus)
@@ -1022,6 +1030,7 @@ RETRY_TRY_BLOCK:
 #endif
       regs[a] = val;
 #else
+      mrb_float test_pool = mrb_float(pool[bx]);
       regs[a] = pool[bx];
 #endif
       NEXT;
@@ -2217,7 +2226,6 @@ RETRY_TRY_BLOCK:
     CASE(OP_ADD) {
       /* A B C  R(A) := R(A)+R(A+1) (Syms[B]=:+,C=1)*/
       int a = GETARG_A(i);
-
       /* need to check if op is overridden */
       switch (TYPES2(mrb_type(regs[a]),mrb_type(regs[a+1]))) {
       case TYPES2(MRB_TT_FIXNUM,MRB_TT_FIXNUM):
