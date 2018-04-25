@@ -17,6 +17,7 @@
 #define YYMALLOC(n)    mrb_malloc(p->mrb, (n))
 #define YYFREE(o)      mrb_free(p->mrb, (o))
 #define YYSTACK_USE_ALLOCA 0
+#include <bitvisor/softfloat.h>
 #include <ctype.h>
 #include <printf.h>
 #include <errno.h>
