@@ -652,7 +652,7 @@ init_desc (struct desc_shadow *s, struct data2 *d2, uint off2, bool transmit)
 	}
 }
 u64 mrb_macaddr[6];
-mrb_value
+/*  mrb_value
 bitvisor_sendnic (mrb_state *mrb,mrb_value self)
 {
     mrb_value mac = mrb_ary_new(mrb);
@@ -660,7 +660,7 @@ bitvisor_sendnic (mrb_state *mrb,mrb_value self)
         mrb_ary_push(mrb, mac, mrb_fixnum_value(mrb_macaddr[i]));
     }
     return mac;
-}
+}*/
 static void
 tdesc_copytobuf (struct data2 *d2, phys_t *addr, uint *len)
 {
