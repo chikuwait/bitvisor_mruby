@@ -75,7 +75,17 @@ mrb_value mrb_num_div(mrb_state *mrb, mrb_value x, mrb_value y);
 #else
 # define WBCHK(x) !FIXABLE(x)
 #endif
-
+int f64_isnan(float64_t f);
+int f64_isinf(float64_t f);
+float64_t f64_floor(float64_t f);
+float64_t f64_ceil(float64_t f);
+float64_t f64_log10(float64_t f);
+float64_t f64_pow(float64_t a,float64_t b);
+#define FLO_MAX_DIGITS 14
+#define FLO_MAX_SIGN_LENGTH 10
+static float64_t FLO_EPSILON = {0x3E112E0BE826D695};
+#define f64_signbit(f)((f.v>>63))
+int abs(int j);
 static inline mrb_bool
 mrb_int_add_overflow(mrb_int augend, mrb_int addend, mrb_int *sum)
 {
