@@ -5,7 +5,7 @@ MRuby::Build.new do |conf|
 
   conf.linker do |linker|
     linker.libraries = %w(softfloat)
-    linker.library_paths = ["./"]
+    linker.library_paths = ["./include/bitvisor"]
   end
   conf.cc.defines << %w(MRB_INT64 SOFTFLOAT_FAST_INT64 LITTLEENDIAN)
 end
@@ -14,7 +14,7 @@ MRuby::CrossBuild.new('BitVisor') do |conf|
   toolchain :gcc
   conf.linker do |linker|
     linker.libraries = %w(softfloat)
-    linker.library_paths = ["./"]
+    linker.library_paths = ["./include/bitvisor"]
   end
   conf.gem :core => "mruby-compiler"
   conf.gem :github => "chikuwait/mruby-pack"
