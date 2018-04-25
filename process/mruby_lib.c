@@ -1,16 +1,15 @@
-#include <core/types.h>
-#include <core/mm.h>
-#include <core/strtol.h>
-#include <core/panic.h>
-#include <core/printf.h>
-#include <stdint.h>
-#include <limits.h>
+#include <lib_stdlib.h>
+#include <lib_printf.h>
+
+#define va_list __builtin_va_list
+#define va_start(PTR, LASTARG) __builtin_va_start (PTR, LASTARG)
+#define va_end(PTR) __builtin_va_end (PTR)
 #define INT_MAX 2147483647
+
 typedef unsigned long size_t;
 typedef void * FILE;
 typedef long int ptrdiff_t;
 size_t mem = 0;
-
 int * __errno_location(void);
 long int strtol(char *nptr, char **endptr, int base);
 unsigned long int strtoul(const char *nptr, char **endptr, int base);
@@ -195,11 +194,13 @@ abort(void)
 {
     panic("mruby abort");
 }
+
 void
 __stack_chk_fail(void)
 {
     abort();
 }
+
 void
 exit(int status)
 {
