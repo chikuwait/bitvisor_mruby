@@ -1,8 +1,8 @@
-CFLAGS +=-Iprocess/lib
+CFLAGS +=-Iprocess/lib -DMRB_DISABLE_STDIO -DBITVISOR_PROCESS -DLITTLEENDIAN -DSOFTFLOAT_FAST_INT64 -Iprocess/mruby_core/include/
 
-
-bins-1 += debug help init log panic recvexample sendexample sendint mirb
+bins-1 += debug help init log panic recvexample sendexample sendint mruby
 bins-1 += serialtest shell
+
 bins-$(CONFIG_IDMAN) += idman
 bins-$(CONFIG_STORAGE) += storage
 bins-$(CONFIG_VPN) += vpn
@@ -28,4 +28,5 @@ vpn-objs = vpn.o
 vpn-libs = vpn/lib/$(outa) crypto/$(outa)
 echoctl-objs = echoctl.o
 monitor-objs = monitor.o
-mirb-objs =mirb.o
+mruby-objs = mruby.o mruby_lib.o test.o
+mruby-libs = process/mruby_core/build/BitVisor/lib/$(mrba) process/mruby_core/include/bitvisor/$(floata)
