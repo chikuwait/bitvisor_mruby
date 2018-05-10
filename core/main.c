@@ -487,16 +487,22 @@ vmm_main (struct multiboot_info *mi_arg)
 	call_initfunc ("global");
 	start_all_processors (bsp_proc, ap_proc);
 }
-static void
+
+int
 mrubyprocess_callback_init(void)
 {
-    int ttyin = msgopen("ttyin");
-    int ttyout = msgopen("ttyout");
-    int mruby_process = newprocess("mruby");
+    int ttyin,ttyout,mruby_process;
+    ttyin = msgopen("ttyin");
+    ttyout = msgopen("ttyout");
+    mruby_process = newprocess("mruby");
+    if(ttyin < 0|| ttyout < 0 ||mruby_process < 0){
+        printf("mruby process generate fail. ttyin = %d,ttyout = %d, mruby_process = %d.\n",ttyin,ttyout,mruby_process);
+        return -1;
+    }
     msgsenddesc(mruby_process,ttyin);
     msgsenddesc(mruby_process,ttyout);
-    printf("mruby_process = %d\n",mruby_process);
     msgsendint(mruby_process,0);
+    return 0;
 }
 INITFUNC ("pcpu2", virtualization_init_pcpu);
 INITFUNC ("pcpu5", create_pass_vm);
@@ -505,4 +511,4 @@ INITFUNC ("bsp0", debug_on_shift_key);
 INITFUNC ("global1", print_boot_msg);
 INITFUNC ("global3", copy_minios);
 INITFUNC ("global3", get_shiftflags);
-INITFUNC ("msg1", mrubyprocess_callback_init);
+INITFUNC ("msg2", mrubyprocess_callback_init);
