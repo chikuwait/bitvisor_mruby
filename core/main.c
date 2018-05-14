@@ -60,6 +60,7 @@
 #include "vramwrite.h"
 #include "vt.h"
 #include "vt_init.h"
+#include <core/process.h>
 
 static struct multiboot_info mi;
 static u32 minios_startaddr;
@@ -487,6 +488,22 @@ vmm_main (struct multiboot_info *mi_arg)
 	start_all_processors (bsp_proc, ap_proc);
 }
 
+int
+mrubyprocess_callback_init(void)
+{
+    int ttyin,ttyout,mruby_process;
+    ttyin = msgopen("ttyin");
+    ttyout = msgopen("ttyout");
+    mruby_process = newprocess("mruby");
+    if(ttyin < 0|| ttyout < 0 ||mruby_process < 0){
+        printf("mruby process generate fail. ttyin = %d,ttyout = %d, mruby_process = %d.\n",ttyin,ttyout,mruby_process);
+        return -1;
+    }
+    msgsenddesc(mruby_process,ttyin);
+    msgsenddesc(mruby_process,ttyout);
+    msgsendint(mruby_process,0);
+    return 0;
+}
 INITFUNC ("pcpu2", virtualization_init_pcpu);
 INITFUNC ("pcpu5", create_pass_vm);
 INITFUNC ("dbsp5", wait_for_create_pass_vm);
@@ -494,3 +511,4 @@ INITFUNC ("bsp0", debug_on_shift_key);
 INITFUNC ("global1", print_boot_msg);
 INITFUNC ("global3", copy_minios);
 INITFUNC ("global3", get_shiftflags);
+INITFUNC ("msg2", mrubyprocess_callback_init);
