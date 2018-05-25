@@ -69,7 +69,7 @@ static u8 minios_params[OSLOADER_BOOTPARAMS_SIZE];
 static void *bios_data_area;
 static int shiftkey;
 static u8 imr_master, imr_slave;
-
+int mruby_process;
 static void
 print_boot_msg (void)
 {
@@ -489,19 +489,26 @@ vmm_main (struct multiboot_info *mi_arg)
 }
 
 int
-mrubyprocess_callback_init(void)
-{
-    int ttyin,ttyout,mruby_process;
+create_mruby_process(){
+    int ttyin, ttyout;
     ttyin = msgopen("ttyin");
     ttyout = msgopen("ttyout");
     mruby_process = newprocess("mruby");
-    if(ttyin < 0|| ttyout < 0 ||mruby_process < 0){
+    if(ttyin <0 || ttyout <0 || mruby_process <0){
         printf("mruby process generate fail. ttyin = %d,ttyout = %d, mruby_process = %d.\n",ttyin,ttyout,mruby_process);
-        return -1;
     }
     msgsenddesc(mruby_process,ttyin);
     msgsenddesc(mruby_process,ttyout);
     msgsendint(mruby_process,0);
+}
+int load_mruby_process()
+{
+    msgsendint(mruby_process,1);
+    return 0;
+}
+int exit_mruby_process()
+{
+    msgsendint(mruby_process,2);
     return 0;
 }
 INITFUNC ("pcpu2", virtualization_init_pcpu);
@@ -511,4 +518,6 @@ INITFUNC ("bsp0", debug_on_shift_key);
 INITFUNC ("global1", print_boot_msg);
 INITFUNC ("global3", copy_minios);
 INITFUNC ("global3", get_shiftflags);
-INITFUNC ("msg2", mrubyprocess_callback_init);
+INITFUNC ("msg3", create_mruby_process);
+INITFUNC ("msg4", load_mruby_process);
+INITFUNC ("msg5", exit_mruby_process);
