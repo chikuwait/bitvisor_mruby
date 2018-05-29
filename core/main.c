@@ -506,6 +506,12 @@ int load_mruby_process()
     msgsendint(mruby_process,1);
     return 0;
 }
+int mruby_callback(){
+    struct msgbuf mbuf;
+    char buf[]="Bitvisor.print'test\n'";
+    setmsgbuf(&mbuf,buf,sizeof buf,0);
+    msgsendbuf(mruby_process,3,&mbuf,1);
+}
 int exit_mruby_process()
 {
     msgsendint(mruby_process,2);
@@ -519,5 +525,6 @@ INITFUNC ("global1", print_boot_msg);
 INITFUNC ("global3", copy_minios);
 INITFUNC ("global3", get_shiftflags);
 INITFUNC ("msg3", create_mruby_process);
-INITFUNC ("msg4", load_mruby_process);
-INITFUNC ("msg5", exit_mruby_process);
+INITFUNC ("msg4",mruby_callback);
+INITFUNC ("msg5", load_mruby_process);
+INITFUNC ("msg6", exit_mruby_process);

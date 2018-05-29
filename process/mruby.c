@@ -85,11 +85,14 @@ mrb_load_workspace(){
             mrb_error_handler();
         }
 }
-
+void
+mrb_callback_reciver(unsigned char *p){
+    mrb_load_string_cxt(space.mrb,p,space.cxt);
+}
 int
-_start(int a1, int a2)
-
+_start(int a1, int a2,struct msgbuf *buf, int bufcnt)
 {
+    unsigned char *p;
     printf("a2 = %d\n\n");
     switch(a2){
         case 0 :
@@ -100,6 +103,11 @@ _start(int a1, int a2)
             break;
         case 2 :
             mrb_exit_workspace();
+            break;
+        case 3:
+            p = buf->base;
+            printf("test msg = %s\n",(char *)p);
+            mrb_callback_reciver(p);
             break;
     }
     return 0;
