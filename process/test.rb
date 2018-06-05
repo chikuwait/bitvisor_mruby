@@ -1,3 +1,3 @@
-def test
-  Bitvisor.print "testtesttest\n"
+def helloworld(name)
+  Bitvisor.print "Hello,#{name}-san!\n"
 end

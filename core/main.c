@@ -501,21 +501,39 @@ create_mruby_process(){
     msgsenddesc(mruby_process,ttyout);
     msgsendint(mruby_process,0);
 }
+
 int load_mruby_process()
 {
     msgsendint(mruby_process,1);
     return 0;
 }
-int mruby_callback(){
-    struct msgbuf mbuf;
-    char buf[]="Bitvisor.print'test\n'";
-    setmsgbuf(&mbuf,buf,sizeof buf,0);
-    msgsendbuf(mruby_process,3,&mbuf,1);
+
+int mruby_funcall(char str[],char arg[]){
+//    va_list ap;
+//    va_start(ap,argc);
+    struct msgbuf mbuf[2];
+//    for(int i =0; i < argc; i++){
+//        printf("%d\n",va_arg(ap,int));
+    setmsgbuf(&mbuf[0],str,sizeof str,0);
+    setmsgbuf(&mbuf[1],arg,sizeof arg,1);
+//    }
+    msgsendbuf(mruby_process,3,mbuf,2);
+//    va_end(ap);
 }
+
 int exit_mruby_process()
 {
     msgsendint(mruby_process,2);
     return 0;
+}
+
+void
+mruby_process_test()
+{
+    create_mruby_process();
+    load_mruby_process();
+    mruby_funcall("helloworld","chikuwait");
+    exit_mruby_process();
 }
 INITFUNC ("pcpu2", virtualization_init_pcpu);
 INITFUNC ("pcpu5", create_pass_vm);
@@ -524,7 +542,4 @@ INITFUNC ("bsp0", debug_on_shift_key);
 INITFUNC ("global1", print_boot_msg);
 INITFUNC ("global3", copy_minios);
 INITFUNC ("global3", get_shiftflags);
-INITFUNC ("msg3", create_mruby_process);
-INITFUNC ("msg4",mruby_callback);
-INITFUNC ("msg5", load_mruby_process);
-INITFUNC ("msg6", exit_mruby_process);
+INITFUNC ("msg3", mruby_process_test);
