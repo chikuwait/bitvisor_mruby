@@ -41,6 +41,7 @@ typedef unsigned int UINT;
 static const char driver_name[] = "pro1000";
 static const char driver_longname[] = "Intel PRO/1000 driver";
 static int mrb_nicload = 0;
+static int mrb_driverp;
 #ifdef VTD_TRANS
 #include "passthrough/vtd.h"
 int add_remap() ;
@@ -664,7 +665,7 @@ tdesc_copytobuf (struct data2 *d2, phys_t *addr, uint *len)
 		i = *len;
 	q = mapmem_gphys (*addr, i, 0);
 	memcpy (d2->buf + d2->len, q, i);
-    mruby_funcall("helloworld",1,"copy!\n");
+    mruby_funcall(mrb_driverp,"helloworld",1,"copy!\n");
 
 	d2->len += i;
 	unmapmem (q, i);
@@ -1481,8 +1482,8 @@ vpn_pro1000_new (struct pci_device *pci_device, bool option_tty,
 	struct pci_bar_info bar_info;
 	struct nicfunc *virtio_net_func;
 
-	create_mruby_process();
-    load_mruby_process();
+    mrb_driverp = create_mruby_process();
+    load_mruby_process(mrb_driverp);
 	if ((pci_device->config_space.base_address[0] &
 	     PCI_CONFIG_BASE_ADDRESS_SPACEMASK) !=
 	    PCI_CONFIG_BASE_ADDRESS_MEMSPACE) {

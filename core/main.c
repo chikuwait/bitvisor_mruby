@@ -489,10 +489,10 @@ vmm_main (struct multiboot_info *mi_arg)
 void
 mruby_process_test()
 {
-    create_mruby_process();
-    load_mruby_process();
-    mruby_funcall("helloworld",1,"chikuwa");
-    exit_mruby_process();
+    int mrbp = create_mruby_process();
+    load_mruby_process(mrbp);
+    mruby_funcall(mrbp,"helloworld",1,"chikuwa");
+    //exit_mruby_process(mrbp);
 }
 INITFUNC ("pcpu2", virtualization_init_pcpu);
 INITFUNC ("pcpu5", create_pass_vm);
