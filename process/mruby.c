@@ -86,13 +86,18 @@ mrb_load_workspace(){
         }
 }
 void
-mrb_callback_reciver(unsigned char *funcall,unsigned char *arg){
-    mrb_funcall(space.mrb,mrb_top_self(space.mrb),funcall,1,mrb_str_new_cstr(space.mrb,arg));
+mrb_callback_reciver(int arg, struct msgbuf *buf){
+    unsigned char *funcall = buf[0].base;
+    if(arg == 0){
+        mrb_funcall(space.mrb,mrb_top_self(space.mrb),funcall,0);
+    }else{
+        unsigned char *arg = buf[1].base;
+        mrb_funcall(space.mrb,mrb_top_self(space.mrb),funcall,1,mrb_str_new_cstr(space.mrb,arg));
+    }
 }
 int
 _start(int a1, int a2,struct msgbuf *buf, int bufcnt)
 {
-    unsigned char *funcall,*arg;
     switch(a2){
         case 0 :
             mrb_create_workspace();
@@ -104,10 +109,10 @@ _start(int a1, int a2,struct msgbuf *buf, int bufcnt)
             mrb_exit_workspace();
             break;
         case 3:
-            funcall = buf[0].base;
-            arg = buf[1].base;
-            mrb_callback_reciver(funcall,arg);
+            mrb_callback_reciver(0,buf);
             break;
+        case 4:
+            mrb_callback_reciver(1,buf);
     }
     return 0;
 }

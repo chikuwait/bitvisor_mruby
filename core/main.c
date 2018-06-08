@@ -69,7 +69,6 @@ static u8 minios_params[OSLOADER_BOOTPARAMS_SIZE];
 static void *bios_data_area;
 static int shiftkey;
 static u8 imr_master, imr_slave;
-int mruby_process;
 static void
 print_boot_msg (void)
 {
@@ -487,52 +486,12 @@ vmm_main (struct multiboot_info *mi_arg)
 	call_initfunc ("global");
 	start_all_processors (bsp_proc, ap_proc);
 }
-
-int
-create_mruby_process(){
-    int ttyin, ttyout;
-    ttyin = msgopen("ttyin");
-    ttyout = msgopen("ttyout");
-    mruby_process = newprocess("mruby");
-    if(ttyin <0 || ttyout <0 || mruby_process <0){
-        printf("mruby process generate fail. ttyin = %d,ttyout = %d, mruby_process = %d.\n",ttyin,ttyout,mruby_process);
-    }
-    msgsenddesc(mruby_process,ttyin);
-    msgsenddesc(mruby_process,ttyout);
-    msgsendint(mruby_process,0);
-}
-
-int load_mruby_process()
-{
-    msgsendint(mruby_process,1);
-    return 0;
-}
-
-int mruby_funcall(char str[],char arg[]){
-//    va_list ap;
-//    va_start(ap,argc);
-    struct msgbuf mbuf[2];
-//    for(int i =0; i < argc; i++){
-//        printf("%d\n",va_arg(ap,int));
-    setmsgbuf(&mbuf[0],str,sizeof str,0);
-    setmsgbuf(&mbuf[1],arg,sizeof arg,1);
-//    }
-    msgsendbuf(mruby_process,3,mbuf,2);
-//    va_end(ap);
-}
-
-int exit_mruby_process()
-{
-    msgsendint(mruby_process,2);
-    return 0;
-}
-
 void
 mruby_process_test()
 {
     create_mruby_process();
     load_mruby_process();
-    mruby_funcall("helloworld","chikuwait");
+    mruby_funcall("helloworld",1,"chikuwa");
     exit_mruby_process();
 }
 INITFUNC ("pcpu2", virtualization_init_pcpu);

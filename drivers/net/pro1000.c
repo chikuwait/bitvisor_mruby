@@ -32,6 +32,7 @@
 #include <core/initfunc.h>
 #include <core/list.h>
 #include <core/mmio.h>
+#include <core/process.h>
 #include <net/netapi.h>
 #include "pci.h"
 #include "virtio_net.h"
@@ -651,16 +652,7 @@ init_desc (struct desc_shadow *s, struct data2 *d2, uint off2, bool transmit)
 		net_start (d2->nethandle);
 	}
 }
-u64 mrb_macaddr[6];
-/*  mrb_value
-bitvisor_sendnic (mrb_state *mrb,mrb_value self)
-{
-    mrb_value mac = mrb_ary_new(mrb);
-    for(int i =0;i<6;i++){
-        mrb_ary_push(mrb, mac, mrb_fixnum_value(mrb_macaddr[i]));
-    }
-    return mac;
-}*/
+
 static void
 tdesc_copytobuf (struct data2 *d2, phys_t *addr, uint *len)
 {
@@ -672,9 +664,8 @@ tdesc_copytobuf (struct data2 *d2, phys_t *addr, uint *len)
 		i = *len;
 	q = mapmem_gphys (*addr, i, 0);
 	memcpy (d2->buf + d2->len, q, i);
-    for (int j=0; j<6; j++) {
-        mrb_macaddr[j] = *(q+j);
-    }
+    mruby_funcall("helloworld",1,"copy!\n");
+
 	d2->len += i;
 	unmapmem (q, i);
 	*addr += i;
@@ -1190,7 +1181,6 @@ mmhandler (void *data, phys_t gphys, bool wr, void *buf, uint len, u32 flags)
 {
 	struct data *d1 = data;
 	struct data2 *d2 = d1->d;
-
 	if (d2->virtio_net && d2->virtio_net_msi && d1 == &d2->d1[0]) {
 		virtio_net_msix (d2->virtio_net, wr, len, gphys - d1->mapaddr,
 				 buf);
@@ -1491,6 +1481,8 @@ vpn_pro1000_new (struct pci_device *pci_device, bool option_tty,
 	struct pci_bar_info bar_info;
 	struct nicfunc *virtio_net_func;
 
+	create_mruby_process();
+    load_mruby_process();
 	if ((pci_device->config_space.base_address[0] &
 	     PCI_CONFIG_BASE_ADDRESS_SPACEMASK) !=
 	    PCI_CONFIG_BASE_ADDRESS_MEMSPACE) {
@@ -1866,7 +1858,7 @@ resume_pro1000 (void)
 	int i;
 	pci_config_address_t addr;
     printf("test----------------------\n");
-	/* All descriptors should be reinitialized before
+     /* All descriptors should be reinitialized before
 	 * receiving/transmitting enabled by the guest OS. */
 	LIST1_FOREACH (d2list, d2) {
 		d2->tdesc[0].initialized = false;
