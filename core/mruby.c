@@ -49,6 +49,7 @@ mruby_set_pointer(int mruby_process, u8 *p){
     memcpy(send_memp,p,sizeof p);
     setmsgbuf(&mbuf,send_memp,sizeof send_memp,0);
     msgsendbuf(mruby_process,5, mbuf,1);
+    mempool_freemem (mp, send_memp);
 }
 int
 exit_mruby_process(int mruby_process)
