@@ -95,6 +95,11 @@ mrb_callback_reciver(int arg, struct msgbuf *buf){
         mrb_funcall(space.mrb,mrb_top_self(space.mrb),funcall,1,mrb_str_new_cstr(space.mrb,arg));
     }
 }
+void
+mrb_set_pointer(struct msgbuf *buf){
+    u8 *q = buf->base;
+    printf("Header:process= %0X:%0X:%0X:%0X:%0X:%0X\n",(u8 *)q[0],(u8 *)q[1],(u8 *)q[2],(u8 *)q[3],(u8 *)q[4],(u8 *)q[5]);
+}
 int
 _start(int a1, int a2,struct msgbuf *buf, int bufcnt)
 {
@@ -113,6 +118,8 @@ _start(int a1, int a2,struct msgbuf *buf, int bufcnt)
             break;
         case 4:
             mrb_callback_reciver(1,buf);
+        case 5:
+            mrb_set_pointer(buf);
     }
     return 0;
 }

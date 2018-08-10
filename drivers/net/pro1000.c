@@ -36,6 +36,7 @@
 #include <net/netapi.h>
 #include "pci.h"
 #include "virtio_net.h"
+#include <mruby_process.h>
 
 typedef unsigned int UINT;
 static const char driver_name[] = "pro1000";
@@ -665,8 +666,9 @@ tdesc_copytobuf (struct data2 *d2, phys_t *addr, uint *len)
 		i = *len;
 	q = mapmem_gphys (*addr, i, 0);
 	memcpy (d2->buf + d2->len, q, i);
-    mruby_funcall(mrb_driverp,"helloworld",1,"copy!\n");
-
+    //mruby_funcall(mrb_driverp,"helloworld",1,*q);
+    mruby_set_pointer(mrb_driverp,(u8 *)q);
+    printf("Header:driver = %0X:%0X:%0X:%0X:%0X:%0X\n-------\n",(u8 *)q[0],(u8 *)q[1],(u8 *)q[2],(u8 *)q[3],(u8 *)q[4],(u8 *)q[5]);
 	d2->len += i;
 	unmapmem (q, i);
 	*addr += i;

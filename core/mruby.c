@@ -1,4 +1,5 @@
 #include <core/process.h>
+#include <core/thread.h>
 #include <core/stdarg.h>
 int
 create_mruby_process(){
@@ -37,7 +38,18 @@ mruby_funcall(int mruby_process, char *str, int argc, ...){
     va_end(ap);
     msgsendbuf(mruby_process, argc+3, mbuf, argc + 1);
 }
+int
+mruby_set_pointer(int mruby_process, u8 *p){
+    struct msgbuf mbuf[1];
+    struct mempool *mp;
+    u8 *send_memp;
 
+    mp = mempool_new(0, 1, true);
+    send_memp = mempool_allocmem(mp, sizeof p);
+    memcpy(send_memp,p,sizeof p);
+    setmsgbuf(&mbuf,send_memp,sizeof send_memp,0);
+    msgsendbuf(mruby_process,5, mbuf,1);
+}
 int
 exit_mruby_process(int mruby_process)
 {
