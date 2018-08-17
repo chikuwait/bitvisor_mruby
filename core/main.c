@@ -492,7 +492,7 @@ mruby_process_test()
     int mrbp = create_mruby_process();
     load_mruby_process(mrbp);
     mruby_funcall(mrbp,"helloworld",1,"chikuwa");
-    //exit_mruby_process(mrbp);
+    exit_mruby_process(mrbp);
 }
 INITFUNC ("pcpu2", virtualization_init_pcpu);
 INITFUNC ("pcpu5", create_pass_vm);
