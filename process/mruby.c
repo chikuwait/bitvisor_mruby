@@ -4,6 +4,7 @@
 #include <lib_syscalls.h>
 #include <mruby.h>
 #include <mruby/compile.h>
+#include <mruby/array.h>
 #include <mruby/value.h>
 #include <mruby/string.h>
 #include <mruby/irep.h>
@@ -12,6 +13,14 @@
 uint8_t mrb_hello_code[];
 int heap[1048576], heaplen = 1048576;
 mrb_value mrb_get_backtrace(mrb_state *mrb, mrb_value self);
+
+typedef struct{
+    mrb_state *mrb;
+    mrbc_context *cxt;
+    int ai;
+}mrb_workspace;
+mrb_workspace space;
+mrb_value mrb_bin_ary;
 
 void
 *allocate(struct mrb_state *mrb, void *p, size_t size, void *ud)
@@ -34,12 +43,11 @@ bitvisor_print(mrb_state *mrb,mrb_value self)
     printf("%s", RSTRING_PTR(str));
 }
 
-typedef struct{
-    mrb_state *mrb;
-    mrbc_context *cxt;
-    int ai;
-}mrb_workspace;
-mrb_workspace space;
+mrb_value
+read_binary(mrb_state *mrb,mrb_value self)
+{
+    return mrb_bin_ary;
+}
 
 void
 mrb_create_workspace(){
@@ -50,6 +58,7 @@ mrb_create_workspace(){
     if(space.mrb != NULL){
         bitvisor = mrb_define_class(space.mrb,"Bitvisor",space.mrb->object_class);
         mrb_define_class_method(space.mrb,bitvisor,"print",bitvisor_print,MRB_ARGS_REQ(1));
+        mrb_define_class_method(space.mrb,bitvisor,"readBinary",read_binary,MRB_ARGS_REQ(1));
     }
 }
 
@@ -95,10 +104,15 @@ mrb_callback_reciver(int arg, struct msgbuf *buf){
         mrb_funcall(space.mrb,mrb_top_self(space.mrb),funcall,1,mrb_str_new_cstr(space.mrb,arg));
     }
 }
+
 void
 mrb_set_pointer(struct msgbuf *buf){
-    u8 *q = buf->base;
-    printf("Header:process= %0X:%0X:%0X:%0X:%0X:%0X\n",(u8 *)q[0],(u8 *)q[1],(u8 *)q[2],(u8 *)q[3],(u8 *)q[4],(u8 *)q[5]);
+    u8 *binary_pointer = buf->base;
+//    printf("Header:process(pointer)= %0X:%0X:%0X:%0X:%0X:%0X\n",(u8 *)mrb_setp[0],(u8 *)mrb_setp[1],(u8 *)mrb_setp[2],(u8 *)mrb_setp[3],(u8 *)mrb_setp[4],(u8 *)mrb_setp[5]);i
+    mrb_bin_ary = mrb_ary_new(space.mrb);
+    for(int j=0; j < 6; j++){
+       mrb_ary_push(space.mrb, mrb_bin_ary, mrb_fixnum_value((u8 *)binary_pointer[j]));
+    }
 }
 int
 _start(int a1, int a2,struct msgbuf *buf, int bufcnt)
@@ -118,7 +132,7 @@ _start(int a1, int a2,struct msgbuf *buf, int bufcnt)
             break;
         case 4:
             mrb_callback_reciver(1,buf);
-        case 5:
+        case 100:
             mrb_set_pointer(buf);
     }
     return 0;
