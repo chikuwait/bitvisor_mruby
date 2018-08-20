@@ -20,7 +20,6 @@ typedef struct{
     int ai;
 }mrb_workspace;
 mrb_workspace space;
-mrb_value mrb_bin_ary;
 
 void
 *allocate(struct mrb_state *mrb, void *p, size_t size, void *ud)
@@ -43,12 +42,6 @@ bitvisor_print(mrb_state *mrb,mrb_value self)
     printf("%s", RSTRING_PTR(str));
 }
 
-mrb_value
-read_binary(mrb_state *mrb,mrb_value self)
-{
-    return mrb_bin_ary;
-}
-
 void
 mrb_create_workspace(){
     space.mrb = mrb_open_allocf(allocate,NULL);
@@ -57,8 +50,7 @@ mrb_create_workspace(){
     space.ai = mrb_gc_arena_save(space.mrb);
     if(space.mrb != NULL){
         bitvisor = mrb_define_class(space.mrb,"Bitvisor",space.mrb->object_class);
-        mrb_define_class_method(space.mrb,bitvisor,"print",bitvisor_print,MRB_ARGS_REQ(1));
-        mrb_define_class_method(space.mrb,bitvisor,"readBinary",read_binary,MRB_ARGS_REQ(1));
+        mrb_define_method(space.mrb,bitvisor,"print",bitvisor_print,MRB_ARGS_REQ(1));
     }
 }
 
@@ -109,10 +101,14 @@ void
 mrb_set_pointer(struct msgbuf *buf){
     u8 *binary_pointer = buf->base;
 //    printf("Header:process(pointer)= %0X:%0X:%0X:%0X:%0X:%0X\n",(u8 *)mrb_setp[0],(u8 *)mrb_setp[1],(u8 *)mrb_setp[2],(u8 *)mrb_setp[3],(u8 *)mrb_setp[4],(u8 *)mrb_setp[5]);i
-    mrb_bin_ary = mrb_ary_new(space.mrb);
+    mrb_value mrb_bin_ary = mrb_ary_new(space.mrb);
     for(int j=0; j < 6; j++){
        mrb_ary_push(space.mrb, mrb_bin_ary, mrb_fixnum_value((u8 *)binary_pointer[j]));
     }
+
+    struct RClass *bitvisor = mrb_class_get(space.mrb, "Bitvisor");
+    mrb_value bitvisor_value = mrb_obj_value(bitvisor);
+    mrb_funcall(space.mrb,bitvisor_value,"setBinary",1,mrb_bin_ary);
 }
 int
 _start(int a1, int a2,struct msgbuf *buf, int bufcnt)
