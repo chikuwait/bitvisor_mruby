@@ -49,7 +49,7 @@ mrb_create_workspace(){
     struct RClass *bitvisor;
     space.ai = mrb_gc_arena_save(space.mrb);
     if(space.mrb != NULL){
-        bitvisor = mrb_define_class(space.mrb,"Bitvisor",space.mrb->object_class);
+        bitvisor = mrb_define_module(space.mrb,"Bitvisor");
         mrb_define_method(space.mrb,bitvisor,"print",bitvisor_print,MRB_ARGS_REQ(1));
     }
 }

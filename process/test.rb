@@ -1,4 +1,9 @@
 class Bitvisor
+  include Bitvisor_core
+  def initialize
+  end
+
+
   def self.setBinary(bin)
     @@bin = bin
   end
