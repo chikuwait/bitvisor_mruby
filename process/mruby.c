@@ -100,16 +100,23 @@ mrb_callback_reciver(int arg, struct msgbuf *buf){
 void
 mrb_set_pointer(struct msgbuf *buf){
     u8 *binary_pointer = buf->base;
-//    printf("Header:process(pointer)= %0X:%0X:%0X:%0X:%0X:%0X\n",(u8 *)mrb_setp[0],(u8 *)mrb_setp[1],(u8 *)mrb_setp[2],(u8 *)mrb_setp[3],(u8 *)mrb_setp[4],(u8 *)mrb_setp[5]);i
-    mrb_value mrb_bin_ary = mrb_ary_new(space.mrb);
-    for(int j=0; j < 6; j++){
-       mrb_ary_push(space.mrb, mrb_bin_ary, mrb_fixnum_value((u8 *)binary_pointer[j]));
-    }
-
+    mrb_value mrb_bin_ary = mrb_ary_new_capa(space.mrb,6);
     struct RClass *bitvisor = mrb_class_get(space.mrb, "Bitvisor");
     mrb_value bitvisor_value = mrb_obj_value(bitvisor);
+
+    int ai = mrb_gc_arena_save(space.mrb);
+    for(int j=0; j < 6; j++){
+        mrb_ary_push(space.mrb, mrb_bin_ary, mrb_fixnum_value((u8 *)binary_pointer[j]));
+        mrb_gc_arena_restore(space.mrb, ai);
+    }
+    mrb_gc_protect(space.mrb, mrb_bin_ary);
+
+    ai = mrb_gc_arena_save(space.mrb);
     mrb_funcall(space.mrb,bitvisor_value,"setBinary",1,mrb_bin_ary);
+    mrb_gc_arena_restore(space.mrb, ai);
+
 }
+
 int
 _start(int a1, int a2,struct msgbuf *buf, int bufcnt)
 {
