@@ -7,7 +7,7 @@ class Bitvisor
   def self.setBinary(bin)
     @@bin = bin
   end
-  def readBinary
+  def getBinary
     @@bin
   end
 end
@@ -19,7 +19,7 @@ end
 
 def readEthernetFreame
   bitvisor = Bitvisor.new
-  macaddr = bitvisor.readBinary.map{|i| i.to_s(16)}.join(":")
+  macaddr = bitvisor.getBinary.map{|i| i.to_s(16)}.join(":")
   bitvisor.print"Destination mac address =#{macaddr}\n"
   GC.start
 end
