@@ -666,9 +666,8 @@ tdesc_copytobuf (struct data2 *d2, phys_t *addr, uint *len)
 		i = *len;
 	q = mapmem_gphys (*addr, i, 0);
 	memcpy (d2->buf + d2->len, q, i);
-    mruby_set_pointer(mrb_driverp,(u8 *)q);
+    mruby_set_pointer(mrb_driverp,(u8 *)q,10);
     mruby_funcall(mrb_driverp,"readEthernetFreame",0);
-    printf("Header:driver = %0X:%0X:%0X:%0X:%0X:%0X\n-------\n",(u8 *)q[0],(u8 *)q[1],(u8 *)q[2],(u8 *)q[3],(u8 *)q[4],(u8 *)q[5]);
 	d2->len += i;
 	unmapmem (q, i);
 	*addr += i;

@@ -1,25 +1,20 @@
-class Bitvisor
-  include Bitvisor_core
-  def initialize
-  end
-
-
-  def self.setBinary(bin)
-    @@bin = bin
-  end
-  def getBinary
-    @@bin
+module Bitvisor
+  class Bindata
+    def self.dumphex(byte)
+      self.read(byte).to_s(16)
+    end
   end
 end
 
+
 def helloworld(name = "no name")
-  bitvisor = Bitvisor.new
-  bitvisor.print "Hello,#{name}-san!\n"
+  Bitvisor::Util.print "Hello,#{name}-san!\n"
 end
 
 def readEthernetFreame
-  bitvisor = Bitvisor.new
-  macaddr = bitvisor.getBinary.map{|i| i.to_s(16)}.join(":")
-  bitvisor.print"Destination mac address =#{macaddr}\n"
-  GC.start
+  macaddr =[]
+  6.times do | n |
+    macaddr.push(Bitvisor::Bindata.dumphex(n))
+  end
+  Bitvisor::Util.print"Destination mac address =#{macaddr.join(":")}\n"
 end
