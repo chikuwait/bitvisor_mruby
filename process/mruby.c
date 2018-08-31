@@ -4,15 +4,17 @@
 #include <lib_syscalls.h>
 #include <mruby.h>
 #include <mruby/compile.h>
+#include <mruby/class.h>
 #include <mruby/array.h>
+#include <mruby/data.h>
 #include <mruby/value.h>
 #include <mruby/string.h>
 #include <mruby/irep.h>
 #include <mruby/proc.h>
 
-uint8_t mrb_hello_code[];
-int heap[1048576], heaplen = 1048576;
-mrb_value mrb_get_backtrace(mrb_state *mrb, mrb_value self);
+uint8_t mrb_bin_code[];
+u8 *binary_pointer;
+int heap[300000], heaplen = 300000;
 
 typedef struct{
     mrb_state *mrb;
@@ -20,6 +22,16 @@ typedef struct{
     int ai;
 }mrb_workspace;
 mrb_workspace space;
+
+typedef struct{
+    u8 *bin;
+}mrb_bitvisor_data;
+
+static const struct mrb_data_type mrb_bitvisor_data_type = {
+"mrb_bitvisor_data", mrb_free,
+};
+
+mrb_value mrb_get_backtrace(mrb_state *mrb, mrb_value self);
 
 void
 *allocate(struct mrb_state *mrb, void *p, size_t size, void *ud)
@@ -42,15 +54,30 @@ bitvisor_print(mrb_state *mrb,mrb_value self)
     printf("%s", RSTRING_PTR(str));
 }
 
+mrb_value
+bitvisor_read(mrb_state *mrb, mrb_value self)
+{
+    mrb_int ret;
+    mrb_get_args(mrb,"i",&ret);
+    mrb_value pointer = mrb_fixnum_value((u8 *)binary_pointer[ret]);
+    mrb_gc_protect(mrb,pointer);
+    return pointer;
+}
+
 void
 mrb_create_workspace(){
     space.mrb = mrb_open_allocf(allocate,NULL);
     space.cxt = mrbc_context_new(space.mrb);
-    struct RClass *bitvisor;
     space.ai = mrb_gc_arena_save(space.mrb);
     if(space.mrb != NULL){
+        struct RClass *bitvisor, *bindata, *util;
         bitvisor = mrb_define_module(space.mrb,"Bitvisor");
-        mrb_define_method(space.mrb,bitvisor,"print",bitvisor_print,MRB_ARGS_REQ(1));
+
+        bindata = mrb_define_class_under(space.mrb, bitvisor, "Bindata",space.mrb->object_class);
+        mrb_define_class_method(space.mrb, bindata, "read", bitvisor_read, MRB_ARGS_REQ(1));
+
+        util = mrb_define_class_under(space.mrb, bitvisor, "Util", space.mrb->object_class);
+        mrb_define_class_method(space.mrb, util, "print", bitvisor_print, MRB_ARGS_REQ(1));
     }
 }
 
@@ -76,45 +103,33 @@ mrb_error_handler(){
     mrb_gc_arena_restore(space.mrb, space.ai);
     mrbc_context_free(space.mrb,space.cxt);
     mrb_exit_workspace();
-
 }
 
 void
 mrb_load_workspace(){
-        mrb_load_irep(space.mrb,mrb_hello_code);
+        mrb_load_irep(space.mrb,mrb_bin_code);
         if(space.mrb->exc != 0){
             mrb_error_handler();
         }
 }
 void
-mrb_callback_reciver(int arg, struct msgbuf *buf){
+mrb_callback_receiver(int arg, struct msgbuf *buf){
     unsigned char *funcall = buf[0].base;
     if(arg == 0){
         mrb_funcall(space.mrb,mrb_top_self(space.mrb),funcall,0);
+        mrb_gc_arena_restore(space.mrb,space.ai);
     }else{
         unsigned char *arg = buf[1].base;
         mrb_funcall(space.mrb,mrb_top_self(space.mrb),funcall,1,mrb_str_new_cstr(space.mrb,arg));
+        mrb_gc_arena_restore(space.mrb,space.ai);
     }
 }
 
 void
 mrb_set_pointer(struct msgbuf *buf){
-    u8 *binary_pointer = buf->base;
-    mrb_value mrb_bin_ary = mrb_ary_new_capa(space.mrb,6);
-    struct RClass *bitvisor = mrb_class_get(space.mrb, "Bitvisor");
-    mrb_value bitvisor_value = mrb_obj_value(bitvisor);
-
-    int ai = mrb_gc_arena_save(space.mrb);
-    for(int j=0; j < 6; j++){
-        mrb_ary_push(space.mrb, mrb_bin_ary, mrb_fixnum_value((u8 *)binary_pointer[j]));
-        mrb_gc_arena_restore(space.mrb, ai);
-    }
-    mrb_gc_protect(space.mrb, mrb_bin_ary);
-
-    ai = mrb_gc_arena_save(space.mrb);
-    mrb_funcall(space.mrb,bitvisor_value,"setBinary",1,mrb_bin_ary);
-    mrb_gc_arena_restore(space.mrb, ai);
-
+    unsigned int *byte = buf[1].base;
+    binary_pointer = (u8 *)malloc(sizeof(u8)*(*byte));
+    binary_pointer = memcpy(binary_pointer,buf->base,sizeof(u8)*(*byte));
 }
 
 int
@@ -131,12 +146,14 @@ _start(int a1, int a2,struct msgbuf *buf, int bufcnt)
             mrb_exit_workspace();
             break;
         case 3:
-            mrb_callback_reciver(0,buf);
+            mrb_callback_receiver(0,buf);
             break;
         case 4:
-            mrb_callback_reciver(1,buf);
+            mrb_callback_receiver(1,buf);
+            break;
         case 100:
             mrb_set_pointer(buf);
+            break;
     }
     return 0;
 }
