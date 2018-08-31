@@ -60,6 +60,7 @@
 #include "vramwrite.h"
 #include "vt.h"
 #include "vt_init.h"
+#include <core/process.h>
 
 static struct multiboot_info mi;
 static u32 minios_startaddr;
@@ -68,7 +69,6 @@ static u8 minios_params[OSLOADER_BOOTPARAMS_SIZE];
 static void *bios_data_area;
 static int shiftkey;
 static u8 imr_master, imr_slave;
-
 static void
 print_boot_msg (void)
 {
@@ -486,7 +486,14 @@ vmm_main (struct multiboot_info *mi_arg)
 	call_initfunc ("global");
 	start_all_processors (bsp_proc, ap_proc);
 }
-
+void
+mruby_process_test()
+{
+    int mrbp = create_mruby_process();
+    load_mruby_process(mrbp);
+    mruby_funcall(mrbp,"helloworld",1,"chikuwa");
+    exit_mruby_process(mrbp);
+}
 INITFUNC ("pcpu2", virtualization_init_pcpu);
 INITFUNC ("pcpu5", create_pass_vm);
 INITFUNC ("dbsp5", wait_for_create_pass_vm);
@@ -494,3 +501,4 @@ INITFUNC ("bsp0", debug_on_shift_key);
 INITFUNC ("global1", print_boot_msg);
 INITFUNC ("global3", copy_minios);
 INITFUNC ("global3", get_shiftflags);
+INITFUNC ("msg3", mruby_process_test);
