@@ -7,7 +7,7 @@ RM = rm -f
 OBJCOPY = objcopy
 SED = sed
 SIZE = size
-
+MRBC = ./process/mruby_core/bin/mrbc
 # files
 CONFIG = .config
 dir := $(DIR:/=)/

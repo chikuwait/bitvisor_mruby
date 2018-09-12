@@ -135,7 +135,7 @@ $(subouto_p) $(subouta_p) $(suboutp_p) :
 
 # Suffix rules
 .SUFFIXES :
-.SUFFIXES : .c .s .o .bin
+.SUFFIXES : .c .s .o .bin .rb
 
 .c.o :
 	$(V-info) CC $@
@@ -144,6 +144,8 @@ $(SED) -n -e 's/.*: *//' -e '/^ *$$/d' -e :a -e '/\\$$/{N' -e ba -e '}' \
 -e 's/$$/ :/' -e H -e '$${x' -e p -e q -e '}' < $(@:.o=).d >> $(@:.o=).d || \
 { $(RM) $@; false; }
 
+.rb.c :
+	$(MRBC) -Bmrb_$(@F:.c=)_code $<
 .s.o :
 	$(V-info) CC $@
 	$(CC) $(ASFLAGS) -c -o $@ $< && \
