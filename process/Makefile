@@ -2,14 +2,12 @@ CFLAGS +=-Iprocess/lib -DMRB_DISABLE_STDIO -DBITVISOR_PROCESS -DLITTLEENDIAN -DS
 
 bins-1 += debug help init log panic recvexample sendexample sendint mruby
 bins-1 += serialtest shell
-
 bins-$(CONFIG_IDMAN) += idman
 bins-$(CONFIG_STORAGE) += storage
 bins-$(CONFIG_VPN) += vpn
 asubdirs-1 += lib
 bins-$(CONFIG_IP) += echoctl
 bins-$(CONFIG_PCI_MONITOR) += monitor
-
 debug-objs = debug.o
 help-objs = help.o
 idman-objs = idman.o
@@ -28,5 +26,5 @@ vpn-objs = vpn.o
 vpn-libs = vpn/lib/$(outa) crypto/$(outa)
 echoctl-objs = echoctl.o
 monitor-objs = monitor.o
-mruby-objs = mruby.o mruby_lib.o test.o
+mruby-objs = bin.o mruby.o mruby_lib.o
 mruby-libs = process/mruby_core/build/BitVisor/lib/$(mrba) process/mruby_core/include/bitvisor/$(floata)
