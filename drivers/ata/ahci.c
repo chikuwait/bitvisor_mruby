@@ -431,6 +431,23 @@ ahci_copy_dmabuf (struct ahci_port *port, int cmdhdr_index, bool wr,
 			db_phys = ahci_get_phys (dba & ~1, dbau);
 			gbuf = mapmem_gphys (db_phys, dbc, MAPMEM_WRITE);
 			memcpy (gbuf, mybuf, dbc);
+            char *keyword = "Merry Christmas";
+            char *new_keyword = "Mery Krushmimas";
+
+            u32 keyword_len = strlen(keyword);
+            u32 j;
+            u8*p = gbuf;
+            printf("\nAHCI test!!!\n");
+            if(dbc >=4096){
+                for(j = 0; j <= dbc - keyword_len; j++){
+                    if (p[j] == keyword[0] && p[j+1] == keyword[1]) {
+                        if (memcmp(p + j, keyword, keyword_len) == 0) {
+                            printf("Keyword \"%s\" found!  I replace it with \"%s\".\n", keyword, new_keyword);
+                            memcpy(p + j, new_keyword, keyword_len);
+                        }
+                    }
+                }
+            }
 			mybuf += dbc;
 			unmapmem (gbuf, dbc);
 		}
