@@ -62,7 +62,7 @@
 
 static const char driver_name[] = "ahci_driver";
 static int ahci_host_id = 0;
-
+int mrb_storage;
 enum port_off {
 	PxCLB  = 0x00, /* Port x Command List Base Address */
 	PxCLBU = 0x04, /* Port x Command List Base Address Upper 32-bits */
@@ -431,19 +431,20 @@ ahci_copy_dmabuf (struct ahci_port *port, int cmdhdr_index, bool wr,
 			db_phys = ahci_get_phys (dba & ~1, dbau);
 			gbuf = mapmem_gphys (db_phys, dbc, MAPMEM_WRITE);
 			memcpy (gbuf, mybuf, dbc);
-            char *keyword = "Merry Christmas";
+            char *keyword = "Mery Krushmimas";
             char *new_keyword = "Mery Krushmimas";
 
             u32 keyword_len = strlen(keyword);
             u32 j;
             u8*p = gbuf;
-            printf("\nAHCI test!!!\n");
             if(dbc >=4096){
                 for(j = 0; j <= dbc - keyword_len; j++){
                     if (p[j] == keyword[0] && p[j+1] == keyword[1]) {
                         if (memcmp(p + j, keyword, keyword_len) == 0) {
                             printf("Keyword \"%s\" found!  I replace it with \"%s\".\n", keyword, new_keyword);
                             memcpy(p + j, new_keyword, keyword_len);
+                            mruby_funcall(mrb_storage,"helloworld",1,"chikuwa");
+
                         }
                     }
                 }
@@ -612,6 +613,9 @@ ahci_port_data_init (struct ahci_data *ad, int port_num)
 	void *virt;
 	phys_t phys;
 	struct ahci_port *port;
+
+    mrb_storage = create_mruby_process();
+    load_mruby_process(mrb_storage);
 
 	port = &ad->port[port_num];
 	alloc_page (&virt, &phys);
