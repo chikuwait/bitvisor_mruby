@@ -45,9 +45,9 @@ mruby_set_pointer(int mruby_process, u8 *p, int byte){
     struct msgbuf mbuf[2];
     struct mempool *mp;
     u8 *send_memp;
-    mp = mempool_new(0, 1, true);
-    send_memp = mempool_allocmem(mp, sizeof p);
-    memcpy(send_memp,p,sizeof p);
+    mp = mempool_new(0, 2, true);
+    send_memp = mempool_allocmem(mp, sizeof p * byte);
+    memcpy(send_memp,p,sizeof p * byte);
     setmsgbuf(&mbuf[0], send_memp, sizeof send_memp, 0);
     setmsgbuf(&mbuf[1], &byte, sizeof byte, 1);
     msgsendbuf(mruby_process,100, mbuf,2);
