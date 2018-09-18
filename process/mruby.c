@@ -131,8 +131,8 @@ mrb_set_pointer(struct msgbuf *buf){
         free(binary_pointer);
     }
     unsigned int *byte = buf[1].base;
-    binary_pointer = (u8 *)malloc(sizeof(u8)*(*byte));
-    binary_pointer = memcpy(binary_pointer,buf->base,sizeof(u8)*(*byte));
+    binary_pointer = (u8 *)malloc(sizeof(u8) * (*byte));
+    binary_pointer = memcpy(binary_pointer,buf[0].base,sizeof(u8) * (*byte));
 }
 
 int
