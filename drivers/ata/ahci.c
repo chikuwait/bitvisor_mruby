@@ -431,31 +431,13 @@ ahci_copy_dmabuf (struct ahci_port *port, int cmdhdr_index, bool wr,
 			db_phys = ahci_get_phys (dba & ~1, dbau);
 			gbuf = mapmem_gphys (db_phys, dbc, MAPMEM_WRITE);
 			memcpy (gbuf, mybuf, dbc);
-            char *keyword = "Mery Krushmimas";
-            char *new_keyword = "Mery Krushmimas";
-
-            u32 keyword_len = strlen(keyword);
-            u32 j;
             u8 *p = gbuf;
 
             if(dbc >=4096){
-                if(p[0]== 0xFF){
                 mruby_set_pointer(mrb_storage,(u8 *)p,2);
                 mruby_funcall(mrb_storage,"jpeg?",0);
-                }
             }
-/*                  for(j = 0; j <= dbc - keyword_len; j++){
-                    if (p[j] == keyword[0] && p[j+1] == keyword[1]) {
-                        if (memcmp(p + j, keyword, keyword_len) == 0) {
-                            printf("Keyword \"%s\" found!  I replace it with \"%s\".\n", keyword, new_keyword);
-                            memcpy(p + j, new_keyword, keyword_len);
-                            mruby_funcall(mrb_storage,"helloworld",1,"chikuwa");
-
-                        }
-                    }
-                }
-            }*/
-			mybuf += dbc;
+            mybuf += dbc;
 			unmapmem (gbuf, dbc);
 		}
 	}
