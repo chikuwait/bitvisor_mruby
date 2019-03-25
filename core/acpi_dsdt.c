@@ -27,6 +27,9 @@
  * POSSIBILITY OF SUCH DAMAGE.
  */
 
+/* For debugging:
+   cc -DDEBUG_APP -DDEBUG_DUMP core/acpi_dsdt.c && ./a.out < dsdt.dat */
+#ifndef DEBUG_APP
 #include "acpi_dsdt.h"
 #include "assert.h"
 #include "mm.h"
@@ -34,463 +37,70 @@
 #include "printf.h"
 #include "stdarg.h"
 #include "string.h"
+#else
+#include <stdio.h>
+#include <stdlib.h>
+#include <stdarg.h>
+#include <stdint.h>
+#include <string.h>
+#include <assert.h>
+#include <err.h>
+
+typedef enum { false, true } bool;
+#define alloc malloc
+#define u32 uint32_t
+#define u8 uint8_t
+#define ulong unsigned long
+#define ASSERT assert
+#define MAPMEM_WRITE 0
+#define panic(...) errx (1, __VA_ARGS__)
+static void parser (unsigned char *start, unsigned char *end, bool);
+static unsigned char buf[1048576];
+
+static void *
+mapmem_hphys (ulong a, int b, int c)
+{
+	return NULL;
+}
+
+static void
+unmapmem (void *a, int b)
+{
+}
+
+int
+main (int argc, char **argv)
+{
+	int size, i, j;
+	extern unsigned char acpi_dsdt_system_state[6][5];
+
+	size = fread (buf, 1, sizeof buf, stdin);
+	if (size <= 0) {
+		perror ("fread");
+		exit (1);
+	}
+	parser (buf, buf + size, true);
+	for (i = 0; i < 6; i++) {
+		printf ("%d: ", i);
+		for (j = 1; j <= acpi_dsdt_system_state[i][0]; j++) {
+			if (j > 1)
+				printf (", ");
+			printf ("%d", acpi_dsdt_system_state[i][j]);
+		}
+		printf ("\n");
+	}
+	exit (0);
+}
+#endif
 
 #define PKGENDLEN 16
 #define DATALEN 64
 
 /* --- */
 enum elementid {
-	OK,
-	AML_PkgLength_0,
-	AML_PkgLength_1,
-	AML_PkgLength_2,
-	AML_PkgLength_3,
-	AML_PkgLength_PUSH,
-	AML_SegCount_OK,
-	AML_ObjectList2,
-	AML_0x00,
-	AML_0x00_TO_0xFF,
-	AML_0x01,
-	AML_0x01_TO_0x7F,
-	AML_0x02,
-	AML_0x06,
-	AML_0x08,
-	AML_0x0A,
-	AML_0x0B,
-	AML_0x0C,
-	AML_0x0D,
-	AML_0x0E,
-	AML_0x10,
-	AML_0x11,
-	AML_0x12,
-	AML_0x13,
-	AML_0x14,
-	AML_0x1F,
-	AML_0x20,
-	AML_0x21,
-	AML_0x22,
-	AML_0x23,
-	AML_0x24,
-	AML_0x25,
-	AML_0x26,
-	AML_0x27,
-	AML_0x28,
-	AML_0x29,
-	AML_0x2A,
-	AML_0x2E,
-	AML_0x2F,
-	AML_0x30,
-	AML_0x30_TO_0x39,
-	AML_0x31,
-	AML_0x32,
-	AML_0x33,
-	AML_0x41_TO_0x5A,
-	AML_0x5B,
-	AML_0x5C,
-	AML_0x5E,
-	AML_0x5F,
-	AML_0x60,
-	AML_0x61,
-	AML_0x62,
-	AML_0x63,
-	AML_0x64,
-	AML_0x65,
-	AML_0x66,
-	AML_0x67,
-	AML_0x68,
-	AML_0x69,
-	AML_0x6A,
-	AML_0x6B,
-	AML_0x6C,
-	AML_0x6D,
-	AML_0x6E,
-	AML_0x70,
-	AML_0x71,
-	AML_0x72,
-	AML_0x73,
-	AML_0x74,
-	AML_0x75,
-	AML_0x76,
-	AML_0x77,
-	AML_0x78,
-	AML_0x79,
-	AML_0x7A,
-	AML_0x7B,
-	AML_0x7C,
-	AML_0x7D,
-	AML_0x7E,
-	AML_0x7F,
-	AML_0x80,
-	AML_0x81,
-	AML_0x82,
-	AML_0x83,
-	AML_0x84,
-	AML_0x85,
-	AML_0x86,
-	AML_0x87,
-	AML_0x88,
-	AML_0x89,
-	AML_0x8A,
-	AML_0x8B,
-	AML_0x8C,
-	AML_0x8D,
-	AML_0x8E,
-	AML_0x8F,
-	AML_0x90,
-	AML_0x91,
-	AML_0x92,
-	AML_0x93,
-	AML_0x94,
-	AML_0x95,
-	AML_0x96,
-	AML_0x97,
-	AML_0x98,
-	AML_0x99,
-	AML_0x9C,
-	AML_0x9D,
-	AML_0x9E,
-	AML_0x9F,
-	AML_0xA0,
-	AML_0xA1,
-	AML_0xA2,
-	AML_0xA3,
-	AML_0xA4,
-	AML_0xA5,
-	AML_0xCC,
-	AML_0xFF,
-	AML_AMLCode,
-	AML_AccessAttrib,
-	AML_AccessField,
-	AML_AccessType,
-	AML_AcquireOp,
-	AML_AddOp,
-	AML_AliasOp,
-	AML_AndOp,
-	AML_Arg0Op,
-	AML_Arg1Op,
-	AML_Arg2Op,
-	AML_Arg3Op,
-	AML_Arg4Op,
-	AML_Arg5Op,
-	AML_Arg6Op,
-	AML_ArgObj,
-	AML_ArgObject,
-	AML_AsciiChar,
-	AML_AsciiCharList,
-	AML_BCDValue,
-	AML_BankFieldOp,
-	AML_BankValue,
-	AML_BitIndex,
-	AML_BreakOp,
-	AML_BreakPointOp,
-	AML_BufData,
-	AML_BuffPkgStrObj,
-	AML_BufferOp,
-	AML_BufferSize,
-	AML_ByteConst,
-	AML_ByteData,
-	AML_ByteIndex,
-	AML_ByteList,
-	AML_BytePrefix,
-	AML_CheckSum,
-	AML_ComputationalData,
-	AML_ConcatOp,
-	AML_ConcatResOp,
-	AML_CondRefOfOp,
-	AML_ConstObj,
-	AML_ContinueOp,
-	AML_CopyObjectOp,
-	AML_CreateBitFieldOp,
-	AML_CreateByteFieldOp,
-	AML_CreateDWordFieldOp,
-	AML_CreateFieldOp,
-	AML_CreateQWordFieldOp,
-	AML_CreateWordFieldOp,
-	AML_CreatorID,
-	AML_CreatorRevision,
-	AML_DDBHandle,
-	AML_DDBHandleObject,
-	AML_DWordConst,
-	AML_DWordData,
-	AML_DWordPrefix,
-	AML_Data,
-	AML_DataObject,
-	AML_DataRefObject,
-	AML_DataRegionOp,
-	AML_DebugObj,
-	AML_DebugOp,
-	AML_DecrementOp,
-	AML_DefAcquire,
-	AML_DefAdd,
-	AML_DefAlias,
-	AML_DefAnd,
-	AML_DefBankField,
-	AML_DefBlockHdr,
-	AML_DefBreak,
-	AML_DefBreakPoint,
-	AML_DefBuffer,
-	AML_DefConcat,
-	AML_DefConcatRes,
-	AML_DefCondRefOf,
-	AML_DefContinue,
-	AML_DefCopyObject,
-	AML_DefCreateBitField,
-	AML_DefCreateByteField,
-	AML_DefCreateDWordField,
-	AML_DefCreateField,
-	AML_DefCreateQWordField,
-	AML_DefCreateWordField,
-	AML_DefDataRegion,
-	AML_DefDecrement,
-	AML_DefDerefOf,
-	AML_DefDevice,
-	AML_DefDivide,
-	AML_DefElse,
-	AML_DefEvent,
-	AML_DefFatal,
-	AML_DefField,
-	AML_DefFindSetLeftBit,
-	AML_DefFindSetRightBit,
-	AML_DefFromBCD,
-	AML_DefIfElse,
-	AML_DefIncrement,
-	AML_DefIndex,
-	AML_DefIndexField,
-	AML_DefLAnd,
-	AML_DefLEqual,
-	AML_DefLGreater,
-	AML_DefLGreaterEqual,
-	AML_DefLLess,
-	AML_DefLLessEqual,
-	AML_DefLNot,
-	AML_DefLNotEqual,
-	AML_DefLOr,
-	AML_DefLoad,
-	AML_DefLoadTable,
-	AML_DefMatch,
-	AML_DefMethod,
-	AML_DefMid,
-	AML_DefMod,
-	AML_DefMultiply,
-	AML_DefMutex,
-	AML_DefNAnd,
-	AML_DefNOr,
-	AML_DefName,
-	AML_DefNoop,
-	AML_DefNot,
-	AML_DefNotify,
-	AML_DefObjectType,
-	AML_DefOpRegion,
-	AML_DefOr,
-	AML_DefPackage,
-	AML_DefPowerRes,
-	AML_DefProcessor,
-	AML_DefRefOf,
-	AML_DefRelease,
-	AML_DefReset,
-	AML_DefReturn,
-	AML_DefScope,
-	AML_DefShiftLeft,
-	AML_DefShiftRight,
-	AML_DefSignal,
-	AML_DefSizeOf,
-	AML_DefSleep,
-	AML_DefStall,
-	AML_DefStore,
-	AML_DefSubtract,
-	AML_DefThermalZone,
-	AML_DefTimer,
-	AML_DefToBCD,
-	AML_DefToBuffer,
-	AML_DefToDecimalString,
-	AML_DefToHexString,
-	AML_DefToInteger,
-	AML_DefToString,
-	AML_DefUnload,
-	AML_DefVarPackage,
-	AML_DefWait,
-	AML_DefWhile,
-	AML_DefXOr,
-	AML_DerefOfOp,
-	AML_Device,
-	AML_DeviceOp,
-	AML_DigitChar,
-	AML_DivideOp,
-	AML_Dividend,
-	AML_Divisor,
-	AML_DualNamePath,
-	AML_DualNamePrefix,
-	AML_ElseOp,
-	AML_EventObject,
-	AML_EventOp,
-	AML_ExtOpPrefix,
-	AML_FatalArg,
-	AML_FatalCode,
-	AML_FatalOp,
-	AML_FatalType,
-	AML_FieldElement,
-	AML_FieldFlags,
-	AML_FieldList,
-	AML_FieldOp,
-	AML_FindSetLeftBitOp,
-	AML_FindSetRightBitOp,
-	AML_FromBCDOp,
-	AML_IfOp,
-	AML_IncrementOp,
-	AML_IndexFieldOp,
-	AML_IndexOp,
-	AML_IndexValue,
-	AML_LandOp,
-	AML_LeadNameChar,
-	AML_LengthArg,
-	AML_LequalOp,
-	AML_LgreaterEqualOp,
-	AML_LgreaterOp,
-	AML_LlessEqualOp,
-	AML_LlessOp,
-	AML_LnotEqualOp,
-	AML_LnotOp,
-	AML_LoadOp,
-	AML_LoadTableOp,
-	AML_Local0Op,
-	AML_Local1Op,
-	AML_Local2Op,
-	AML_Local3Op,
-	AML_Local4Op,
-	AML_Local5Op,
-	AML_Local6Op,
-	AML_Local7Op,
-	AML_LocalObj,
-	AML_LorOp,
-	AML_MatchOp,
-	AML_MatchOpcode,
-	AML_MethodFlags,
-	AML_MethodOp,
-	AML_MidObj,
-	AML_MidOp,
-	AML_ModOp,
-	AML_MsecTime,
-	AML_MultiNamePath,
-	AML_MultiNamePrefix,
-	AML_MultiplyOp,
-	AML_MutexObject,
-	AML_MutexOp,
-	AML_NameChar,
-	AML_NameOp,
-	AML_NamePath,
-	AML_NameSeg,
-	AML_NameSpaceModifierObj,
-	AML_NameString,
-	AML_NamedField,
-	AML_NamedObj,
-	AML_NandOp,
-	AML_NoopOp,
-	AML_NorOp,
-	AML_NotOp,
-	AML_Nothing,
-	AML_NotifyObject,
-	AML_NotifyOp,
-	AML_NotifyValue,
-	AML_NullChar,
-	AML_NullName,
-	AML_NumBits,
-	AML_NumElements,
-	AML_ObjReference,
-	AML_Object,
-	AML_ObjectList,
-	AML_ObjectReference,
-	AML_ObjectTypeOp,
-	AML_OemID,
-	AML_OemRevision,
-	AML_OemTableID,
-	AML_OneOp,
-	AML_OnesOp,
-	AML_OpRegionOp,
-	AML_Operand,
-	AML_OrOp,
-	AML_PackageElement,
-	AML_PackageElementList,
-	AML_PackageOp,
-	AML_ParentPrefixChar,
-	AML_PblkAddr,
-	AML_PblkLen,
-	AML_PkgEND,
-	AML_PkgIGNORE,
-	AML_PkgLength,
-	AML_PowerResOp,
-	AML_Predicate,
-	AML_PrefixPath,
-	AML_ProcID,
-	AML_Processor,
-	AML_ProcessorOp,
-	AML_QWordConst,
-	AML_QWordData,
-	AML_QWordPrefix,
-	AML_Quotient,
-	AML_RefOfOp,
-	AML_RegionLen,
-	AML_RegionOffset,
-	AML_RegionSpace,
-	AML_ReleaseOp,
-	AML_Remainder,
-	AML_ReservedField,
-	AML_ResetOp,
-	AML_ResourceOrder,
-	AML_ReturnOp,
-	AML_RevisionOp,
-	AML_RootChar,
-	AML_ScopeOp,
-	AML_SearchPkg,
-	AML_SegCount,
-	AML_ShiftCount,
-	AML_ShiftLeftOp,
-	AML_ShiftRightOp,
-	AML_SignalOp,
-	AML_SimpleName,
-	AML_SizeOfOp,
-	AML_SleepOp,
-	AML_SourceBuff,
-	AML_SpecCompliance,
-	AML_StallOp,
-	AML_StartIndex,
-	AML_StoreOp,
-	AML_String,
-	AML_StringPrefix,
-	AML_SubtractOp,
-	AML_SuperName,
-	AML_SyncFlags,
-	AML_SystemLevel,
-	AML_TableLength,
-	AML_TableSignature,
-	AML_Target,
-	AML_TermArg,
-	AML_TermArgList,
-	AML_TermList,
-	AML_TermObj,
-	AML_ThermalZoneOp,
-	AML_Timeout,
-	AML_TimerOp,
-	AML_ToBCDOp,
-	AML_ToBufferOp,
-	AML_ToDecimalStringOp,
-	AML_ToHexStringOp,
-	AML_ToIntegerOp,
-	AML_ToStringOp,
-	AML_Type1Opcode,
-	AML_Type2Opcode,
-	AML_Type6Opcode,
-	AML_UnloadOp,
-	AML_UsecTime,
-	AML_UserTermObj,
-	AML_VarNumElements,
-	AML_VarPackageOp,
-	AML_WaitOp,
-	AML_WhileOp,
-	AML_WordConst,
-	AML_WordData,
-	AML_WordPrefix,
-	AML_XorOp,
-	AML_ZeroOp,
+#define TERM(x) x
+#include "acpi_dsdt_term.h"
+#undef TERM
 };
 /* --- */
 
@@ -1013,11 +623,47 @@ parseok_def (struct parsedata *d, struct pathlist *path)
 	}
 }
 
+#ifdef DEBUG_DUMP
+static char *term[] = {
+#define TERM(x) #x
+#include "acpi_dsdt_term.h"
+#undef TERM
+};
+
+static void
+ppath (struct pathlist *p)
+{
+	if (p->next)
+		ppath (p->next);
+	printf (" %s", term[p->element]);
+}
+
+static void
+debug_dump (struct parsedata *d)
+{
+	int len;
+	char tmp[DATALEN];
+
+	printf ("%5x[%02x]:", d->c - d->start, *d->c);
+	ppath (d->cur->pathhead);
+	printf (" ");
+	len = getname (d, tmp, sizeof tmp);
+	printname (tmp, len);
+	printf ("\n");
+}
+#else
+static void
+debug_dump (struct parsedata *d)
+{
+}
+#endif
+
 static void
 parseok (struct parsedata *d)
 {
 	struct pathlist *path, *tmp;
 
+	debug_dump (d);
 	path = NULL;
 	path = (tmp = pathsearch (d, AML_DefScope, path)) ? tmp : path;
 	path = (tmp = pathsearch (d, AML_DefDevice, path)) ? tmp : path;
@@ -1072,7 +718,10 @@ loop2:
 	switch (element) {
 /* --- */
 	case AML_AMLCode:
-		addbuf (d, AML_DefBlockHdr, AML_TermList, OK);
+		/* ThinkPad L570 has a DSDT that contains unexpected
+		 * OneOp in TermList.  TermList2 has OneOp for
+		 * workaround. */
+		addbuf (d, AML_DefBlockHdr, AML_TermList2, OK);
 		break;
 	case AML_DefBlockHdr:
 		addbuf (d, AML_TableSignature, AML_TableLength, 
@@ -1261,9 +910,12 @@ loop2:
 	case AML_ExtOpPrefix:
 		addbuf (d, AML_0x5B, OK);
 		break;
-	case AML_TermObj:
+	case AML_Object:
 		addbuf (d, AML_NameSpaceModifierObj, OK);
 		addbuf (d, AML_NamedObj, OK);
+		break;
+	case AML_TermObj:
+		addbuf (d, AML_Object, OK);
 		addbuf (d, AML_Type1Opcode, OK);
 		addbuf (d, AML_Type2Opcode, OK);
 		break;
@@ -1277,20 +929,23 @@ loop2:
 		addbuf (d, AML_ArgObj, OK);
 		addbuf (d, AML_LocalObj, OK);
 		break;
-	case AML_UserTermObj:
-		addbuf (d, AML_NameString, AML_TermArgList, OK);
+	case AML_MethodInvocation:
+		/* NameString2 is same as NameString except NullName.
+		 * If NameString is used here, multiple ZeroOp bytes
+		 * are parsed as NullName for NameString, and, ZeroOp
+		 * and another MethodInvocation for TermArgList.  To
+		 * avoid the behavior which may take a long time,
+		 * NullName is specially handled in MethodInvocation2
+		 * and goto err if MethodInvocation2 already exists in
+		 * path. */
+		if (pathsearch (d, AML_MethodInvocation2, NULL))
+			goto err;
+		addbuf (d, AML_NameString2, AML_TermArgList, OK);
+		addbuf (d, AML_MethodInvocation2, OK);
 		break;
 	case AML_TermArgList:
 		addbuf (d, AML_Nothing, OK);
 		addbuf (d, AML_TermArg, AML_TermArgList, OK);
-		break;
-	case AML_ObjectList:
-		addbuf (d, AML_Nothing, OK);
-		addbuf (d, AML_Object, AML_ObjectList, OK);
-		break;
-	case AML_Object:
-		addbuf (d, AML_NameSpaceModifierObj, OK);
-		addbuf (d, AML_NamedObj, OK);
 		break;
 	case AML_NameSpaceModifierObj:
 		addbuf (d, AML_DefAlias, OK);
@@ -1327,8 +982,12 @@ loop2:
 		addbuf (d, AML_DefCreateQWordField, OK);
 		addbuf (d, AML_DefCreateWordField, OK);
 		addbuf (d, AML_DefDataRegion, OK);
+		/* DefDevice, DefEvent, DefField, DefIndexField,
+		 * DefMethod and DefMutex were removed from NamedObj
+		 * in ACPI spec 5.0, but actually they are needed. */
 		addbuf (d, AML_DefDevice, OK);
 		addbuf (d, AML_DefEvent, OK);
+		addbuf (d, AML_DefExternal, OK);
 		addbuf (d, AML_DefField, OK);
 		addbuf (d, AML_DefIndexField, OK);
 		addbuf (d, AML_DefMethod, OK);
@@ -1356,11 +1015,6 @@ loop2:
 		addbuf (d, AML_Nothing, OK);
 		addbuf (d, AML_FieldElement, AML_FieldList, OK);
 		break;
-	case AML_FieldElement:
-		addbuf (d, AML_NamedField, OK);
-		addbuf (d, AML_ReservedField, OK);
-		addbuf (d, AML_AccessField, OK);
-		break;
 	case AML_NamedField:
 		addbuf (d, AML_NameSeg, AML_PkgLength, 
 			AML_PkgIGNORE, OK);
@@ -1378,6 +1032,13 @@ loop2:
 		break;
 	case AML_AccessAttrib:
 		addbuf (d, AML_ByteData, OK);
+		break;
+	case AML_ConnectField:
+		addbuf (d, AML_0x02, AML_NameString, OK);
+		/* BufferData appeared in ACPI spec 5.0 but it still
+		 * has been undefined in ACPI spec 6.2.  BufData is
+		 * just guess. */
+		addbuf (d, AML_0x02, /* AML_BufferData */AML_BufData, OK);
 		break;
 	case AML_DefCreateBitField:
 		addbuf (d, AML_CreateBitFieldOp, AML_SourceBuff, 
@@ -1449,6 +1110,19 @@ loop2:
 	case AML_EventOp:
 		addbuf (d, AML_ExtOpPrefix, AML_0x02, OK);
 		break;
+	case AML_DefExternal:
+		addbuf (d, AML_ExternalOp, AML_NameString, AML_ObjectType,
+			AML_ArgumentCount, OK);
+		break;
+	case AML_ExternalOp:
+		addbuf (d, AML_0x15, OK);
+		break;
+	case AML_ObjectType:
+		addbuf (d, AML_ByteData, OK);
+		break;
+	case AML_ArgumentCount:
+		addbuf (d, AML_ByteData /* 0 - 7 */, OK);
+		break;
 	case AML_DefField:
 		addbuf (d, AML_FieldOp, AML_PkgLength, 
 			AML_NameString, AML_FieldFlags, AML_FieldList, 
@@ -1501,7 +1175,7 @@ loop2:
 	case AML_DefPowerRes:
 		addbuf (d, AML_PowerResOp, AML_PkgLength, 
 			AML_NameString, AML_SystemLevel, 
-			AML_ResourceOrder, AML_ObjectList, AML_PkgEND, OK);
+			AML_ResourceOrder, AML_TermList, AML_PkgEND, OK);
 		break;
 	case AML_PowerResOp:
 		addbuf (d, AML_ExtOpPrefix, AML_0x84, OK);
@@ -1515,7 +1189,7 @@ loop2:
 	case AML_DefProcessor:
 		addbuf (d, AML_ProcessorOp, AML_PkgLength, 
 			AML_NameString, AML_ProcID, AML_PblkAddr, 
-			AML_PblkLen, AML_ObjectList, AML_PkgEND, OK);
+			AML_PblkLen, AML_TermList, AML_PkgEND, OK);
 		break;
 	case AML_ProcessorOp:
 		addbuf (d, AML_ExtOpPrefix, AML_0x83, OK);
@@ -1531,10 +1205,27 @@ loop2:
 		break;
 	case AML_DefThermalZone:
 		addbuf (d, AML_ThermalZoneOp, AML_PkgLength, 
-			AML_NameString, AML_ObjectList, AML_PkgEND, OK);
+			AML_NameString, AML_TermList, AML_PkgEND, OK);
 		break;
 	case AML_ThermalZoneOp:
 		addbuf (d, AML_ExtOpPrefix, AML_0x85, OK);
+		break;
+	case AML_ExtendedAccessField:
+		/* AccessLength appeared in ACPI spec 5.0 but it still
+		 * has been undefined in ACPI spec 6.2.  ByteData is
+		 * just guess. */
+		addbuf (d, AML_0x03, AML_AccessType, AML_ExtendedAccessAttrib,
+			/* AML_AccessLength */AML_ByteData, OK);
+		break;
+	case AML_ExtendedAccessAttrib:
+		addbuf (d, AML_ByteData, OK);
+		break;
+	case AML_FieldElement:
+		addbuf (d, AML_NamedField, OK);
+		addbuf (d, AML_ReservedField, OK);
+		addbuf (d, AML_AccessField, OK);
+		addbuf (d, AML_ExtendedAccessField, OK);
+		addbuf (d, AML_ConnectField, OK);
 		break;
 	case AML_Type1Opcode:
 		addbuf (d, AML_DefBreak, OK);
@@ -1750,13 +1441,17 @@ loop2:
 		addbuf (d, AML_DefToString, OK);
 		addbuf (d, AML_DefWait, OK);
 		addbuf (d, AML_DefXOr, OK);
-		addbuf (d, AML_UserTermObj, OK);
+		addbuf (d, AML_MethodInvocation, OK);
 		break;
 	case AML_Type6Opcode:
 		addbuf (d, AML_DefRefOf, OK);
 		addbuf (d, AML_DefDerefOf, OK);
 		addbuf (d, AML_DefIndex, OK);
-		addbuf (d, AML_UserTermObj, OK);
+		/* UserTermObj was apparently replaced to
+		 * MethodInvocation in ACPI spec 5.0 but Type6Opcode
+		 * still has UserTermObj in ACPI spec 6.2.  It must be
+		 * MethodInvocation now. */
+		addbuf (d, /* AML_UserTermObj */AML_MethodInvocation, OK);
 		break;
 	case AML_DefAcquire:
 		addbuf (d, AML_AcquireOp, AML_MutexObject, 
@@ -2260,6 +1955,7 @@ loop2:
 	case AML_0x01: OKIF (*d->c == 0x01); goto err;
 	case AML_0x01_TO_0x7F: OKIF (*d->c >= 0x01 && *d->c <= 0x7F); goto err;
 	case AML_0x02: OKIF (*d->c == 0x02); goto err;
+	case AML_0x03: OKIF (*d->c == 0x03); goto err;
 	case AML_0x06: OKIF (*d->c == 0x06); goto err;
 	case AML_0x08: OKIF (*d->c == 0x08); goto err;
 	case AML_0x0A: OKIF (*d->c == 0x0A); goto err;
@@ -2272,6 +1968,7 @@ loop2:
 	case AML_0x12: OKIF (*d->c == 0x12); goto err;
 	case AML_0x13: OKIF (*d->c == 0x13); goto err;
 	case AML_0x14: OKIF (*d->c == 0x14); goto err;
+	case AML_0x15: OKIF (*d->c == 0x15); goto err;
 	case AML_0x1F: OKIF (*d->c == 0x1F); goto err;
 	case AML_0x20: OKIF (*d->c == 0x20); goto err;
 	case AML_0x21: OKIF (*d->c == 0x21); goto err;
@@ -2374,13 +2071,10 @@ loop2:
 		addbuf (d, AML_TermArg, OK); /* FIXME: correct? */
 		break;
 	case AML_DefDevice:
-		/* If() operator must not be in ObjectList but */
-		/* some BIOSes have a DSDT which has If() operator */
-		/* in ObjectList of Device() block. (see ACPI spec 4.0a) */
-		/* ObjectList2 includes If() operator for workaround. */
-		/* D34010WYKH 2014-01 has ZeroOp in ObjectList of Device(). */
+		/* D34010WYKH 2014-01 has ZeroOp in TermList of
+		 * Device().  That is parsed in MethodInvocation. */
 		addbuf (d, AML_DeviceOp, AML_PkgLength, 
-			AML_NameString, AML_ObjectList2, AML_PkgEND, OK);
+			AML_NameString, AML_TermList, AML_PkgEND, OK);
 		break;
 	case AML_DefMethod:
 		addbuf (d, AML_MethodOp, AML_PkgLength, 
@@ -2399,12 +2093,14 @@ loop2:
 		addbuf (d, AML_SuperName, OK);
 		/* => ThermalZone | Processor | Device */
 		break;
-	case AML_ObjectList2:
-		addbuf (d, AML_Nothing, OK);
-		addbuf (d, AML_Object, AML_ObjectList2, OK);
-		addbuf (d, AML_DefIfElse, AML_ObjectList2, OK);
-		/* ZeroOp is a workaround for D34010WYKH 2014-01 */
-		addbuf (d, AML_ZeroOp, AML_ObjectList2, OK);
+	case AML_NameString2:
+		/* NameString without NullName in NamePath */
+		addbuf (d, AML_RootChar, AML_NameSeg, OK);
+		addbuf (d, AML_RootChar, AML_DualNamePath, OK);
+		addbuf (d, AML_RootChar, AML_MultiNamePath, OK);
+		addbuf (d, AML_PrefixPath, AML_NameSeg, OK);
+		addbuf (d, AML_PrefixPath, AML_DualNamePath, OK);
+		addbuf (d, AML_PrefixPath, AML_MultiNamePath, OK);
 		break;
 	case AML_ObjectReference:
 		addbuf (d, AML_TermArg, OK); /* FIXME: correct? */
@@ -2478,6 +2174,18 @@ loop2:
 		goto ok;
 	case AML_WordData:	/* ByteData[0:7] ByteData[8:15] */
 		addbuf (d, AML_ByteData, AML_ByteData, OK);
+		break;
+	case AML_MethodInvocation2:
+		/* NameString with NullName in NamePath and method
+		 * arguments */
+		addbuf (d, AML_RootChar, AML_NullName, AML_TermArgList, OK);
+		addbuf (d, AML_PrefixPath, AML_NullName, AML_TermArgList, OK);
+		break;
+	case AML_TermList2:
+		addbuf (d, AML_Nothing, OK);
+ 		addbuf (d, AML_TermObj, AML_TermList2, OK);
+		/* OneOp is a workaround for ThinkPad L570. */
+		addbuf (d, AML_OneOp, AML_TermList2, OK);
 		break;
 	case OK:
 		if (!d->cur->pathhead)

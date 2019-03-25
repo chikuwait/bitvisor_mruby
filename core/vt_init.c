@@ -29,6 +29,7 @@
 
 #include "asm.h"
 #include "assert.h"
+#include "config.h"
 #include "constants.h"
 #include "current.h"
 #include "initfunc.h"
@@ -41,6 +42,7 @@
 #include "vt_init.h"
 #include "vt_paging.h"
 #include "vt_panic.h"
+#include "vt_shadow_vt.h"
 #include "vt_regs.h"
 
 /* Check whether VMX is usable
@@ -146,6 +148,16 @@ vt__vmxon (void)
 }
 
 static void
+vt_check_capabilities (void)
+{
+	u64 vmx_misc;
+
+	asm_rdmsr64 (MSR_IA32_VMX_MISC, &vmx_misc);
+	currentcpu->vt.vmcs_writable_readonly =
+		!!(vmx_misc & MSR_IA32_VMX_MISC_VMWRITE_ALL_BIT);
+}
+
+static void
 vpid_init (void)
 {
 	u64 ept_vpid_cap;
@@ -195,6 +207,20 @@ vt_cr3exit_controllable (void)
 	    VMCS_PROC_BASED_VMEXEC_CTL_CR3STOREEXIT_BIT)
 		return false;
 	return true;
+}
+
+static bool
+vt_pcid_available (void)
+{
+	u32 a, b, c, d;
+
+#ifndef __x86_64__
+	return false;
+#endif
+	asm_cpuid (CPUID_1, 0, &a, &b, &c, &d);
+	if (c & CPUID_1_ECX_PCID_BIT)
+		return true;
+	return false;
 }
 
 /* Initialize VMCS region
@@ -252,10 +278,15 @@ vt__vmcs_init (void)
 	current->u.vt.unrestricted_guest_available = false;
 	current->u.vt.unrestricted_guest = false;
 	current->u.vt.save_load_efer_enable = false;
-	current->u.vt.exint_pass = true;
-	current->u.vt.exint_pending = false;
+	current->u.vt.exint_pass = false;
+	current->u.vt.exint_assert = false;
 	current->u.vt.cr3exit_controllable = vt_cr3exit_controllable ();
 	current->u.vt.cr3exit_off = false;
+	current->u.vt.pcid_available = vt_pcid_available ();
+	current->u.vt.shadow_vt = NULL;
+	current->u.vt.vmxe = false;
+	current->u.vt.vmxon = false;
+	current->u.vt.vmcs_shadowing_available = false;
 	alloc_page (&current->u.vt.vi.vmcs_region_virt,
 		    &current->u.vt.vi.vmcs_region_phys);
 	current->u.vt.intr.vmcs_intr_info.s.valid = INTR_INFO_VALID_INVALID;
@@ -300,13 +331,21 @@ vt__vmcs_init (void)
 		    VMCS_PROC_BASED_VMEXEC_CTL2_UNRESTRICTED_GUEST_BIT)
 			current->u.vt.unrestricted_guest_available = true;
 		if (procbased_ctls2_and &
+		    VMCS_PROC_BASED_VMEXEC_CTL2_ENABLE_INVPCID_BIT)
+			current->u.vt.enable_invpcid_available = true;
+		if (procbased_ctls2_and &
 		    VMCS_PROC_BASED_VMEXEC_CTL2_ENABLE_RDTSCP_BIT)
 			procbased_ctls2 |=
 				VMCS_PROC_BASED_VMEXEC_CTL2_ENABLE_RDTSCP_BIT;
 		if (procbased_ctls2_and &
-		    VMCS_PROC_BASED_VMEXEC_CTL2_ENABLE_XSAVES_BIT)
+		    VMCS_PROC_BASED_VMEXEC_CTL2_ENABLE_XSAVES_BIT) {
 			procbased_ctls2 |=
 				VMCS_PROC_BASED_VMEXEC_CTL2_ENABLE_XSAVES_BIT;
+			asm_vmwrite64 (VMCS_XSS_EXITING_BMP, 0);
+		}
+		if (procbased_ctls2_and &
+		    VMCS_PROC_BASED_VMEXEC_CTL2_ENABLE_VMCS_SHADOWING_BIT)
+			current->u.vt.vmcs_shadowing_available = true;
 	}
 	if ((exit_ctls_and & VMCS_VMEXIT_CTL_SAVE_IA32_EFER_BIT) &&
 	    (exit_ctls_and & VMCS_VMEXIT_CTL_LOAD_IA32_EFER_BIT) &&
@@ -360,7 +399,7 @@ vt__vmcs_init (void)
 		asm_vmwrite64 (VMCS_GUEST_IA32_EFER, 0);
 	/* 32-Bit Control Fields */
 	asm_vmwrite (VMCS_PIN_BASED_VMEXEC_CTL,
-		     (/* VMCS_PIN_BASED_VMEXEC_CTL_EXINTEXIT_BIT */0 |
+		     (VMCS_PIN_BASED_VMEXEC_CTL_EXINTEXIT_BIT |
 		      VMCS_PIN_BASED_VMEXEC_CTL_NMIEXIT_BIT |
 		      VMCS_PIN_BASED_VMEXEC_CTL_VIRTNMIS_BIT |
 		      pinbased_ctls_or) & pinbased_ctls_and);
@@ -411,7 +450,8 @@ vt__vmcs_init (void)
 	asm_vmwrite (VMCS_GUEST_LDTR_ACCESS_RIGHTS, guest_riv.ldtr.acr);
 	asm_vmwrite (VMCS_GUEST_TR_ACCESS_RIGHTS, guest_riv.tr.acr);
 	asm_vmwrite (VMCS_GUEST_INTERRUPTIBILITY_STATE, 0);
-	asm_vmwrite (VMCS_GUEST_ACTIVITY_STATE, 0);
+	asm_vmwrite (VMCS_GUEST_ACTIVITY_STATE,
+		     VMCS_GUEST_ACTIVITY_STATE_ACTIVE);
 	asm_vmwrite (VMCS_GUEST_IA32_SYSENTER_CS, sysenter_cs);
 	/* 32-Bit Host-State Field */
 	asm_vmwrite (VMCS_HOST_IA32_SYSENTER_CS, sysenter_cs);
@@ -501,6 +541,7 @@ vt_init (void)
 {
 	vt__vmx_init ();
 	vt__vmxon ();
+	vt_check_capabilities ();
 }
 
 void

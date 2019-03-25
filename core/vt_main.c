@@ -28,6 +28,7 @@
  */
 
 #include "asm.h"
+#include "config.h"
 #include "constants.h"
 #include "convert.h"
 #include "cpu_emul.h"
@@ -36,8 +37,10 @@
 #include "exint_pass.h"
 #include "gmm_pass.h"
 #include "initfunc.h"
+#include "initipi.h"
 #include "int.h"
 #include "linkage.h"
+#include "nmi.h"
 #include "panic.h"
 #include "pcpu.h"
 #include "printf.h"
@@ -54,6 +57,7 @@
 #include "vt_main.h"
 #include "vt_paging.h"
 #include "vt_regs.h"
+#include "vt_shadow_vt.h"
 #include "vt_vmcs.h"
 
 #define EPT_VIOLATION_EXIT_QUAL_WRITE_BIT 0x2
@@ -63,6 +67,7 @@ enum vt__status {
 	VT__VMENTRY_SUCCESS,
 	VT__VMENTRY_FAILED,
 	VT__VMEXIT,
+	VT__NMI,
 };
 
 static u32 stat_intcnt = 0;
@@ -132,20 +137,45 @@ make_gp_fault (u32 errcode)
 }
 
 static void
+make_ud_fault (void)
+{
+	struct vt_intr_data *vid = &current->u.vt.intr;
+
+	vid->vmcs_intr_info.s.vector = EXCEPTION_UD;
+	vid->vmcs_intr_info.s.type = INTR_INFO_TYPE_HARD_EXCEPTION;
+	vid->vmcs_intr_info.s.err = INTR_INFO_ERR_INVALID;
+	vid->vmcs_intr_info.s.nmi = 0;
+	vid->vmcs_intr_info.s.reserved = 0;
+	vid->vmcs_intr_info.s.valid = INTR_INFO_VALID_VALID;
+	vid->vmcs_exception_errcode = 0;
+	vid->vmcs_instruction_len = 0;
+}
+
+static void
 do_rdmsr (void)
 {
-	if (cpu_emul_rdmsr ())
-		make_gp_fault (0);
-	else
+	struct vt_intr_data *vid = &current->u.vt.intr;
+	u32 v;
+
+	v = vid->vmcs_intr_info.v;
+	if (cpu_emul_rdmsr ()) {
+		if (v == vid->vmcs_intr_info.v) /* not page fault */
+			make_gp_fault (0);
+	} else
 		add_ip ();
 }
 
 static void
 do_wrmsr (void)
 {
-	if (cpu_emul_wrmsr ())
-		make_gp_fault (0);
-	else
+	struct vt_intr_data *vid = &current->u.vt.intr;
+	u32 v;
+
+	v = vid->vmcs_intr_info.v;
+	if (cpu_emul_wrmsr ()) {
+		if (v == vid->vmcs_intr_info.v) /* not page fault */
+			make_gp_fault (0);
+	} else
 		add_ip ();
 }
 
@@ -177,34 +207,40 @@ vt_generate_nmi (void)
 	vid->vmcs_instruction_len = 0;
 }
 
-/* NMI handler.  FIXME: This is currently pass-through only. */
+/* Generate an NMI in the VM */
 static void
 vt_nmi_has_come (void)
 {
 	ulong is, proc_based_vmexec_ctl;
+	struct vt_intr_data *vid = &current->u.vt.intr;
 
-	/* If blocking by NMI bit is set, the NMI will not be
-	 * generated since an NMI handler in the guest operating
-	 * system is running. */
-	asm_vmread (VMCS_GUEST_INTERRUPTIBILITY_STATE, &is);
-	if (is & VMCS_GUEST_INTERRUPTIBILITY_STATE_BLOCKING_BY_NMI_BIT)
+	/* If the vmcs_intr_info is set to NMI, NMI will be generated
+	 * soon. */
+	if (vid->vmcs_intr_info.s.valid == INTR_INFO_VALID_VALID &&
+	    vid->vmcs_intr_info.s.type == INTR_INFO_TYPE_NMI)
 		return;
 	/* If NMI-window exiting bit is set, VM Exit reason "NMI
 	   window" will generate NMI. */
 	asm_vmread (VMCS_PROC_BASED_VMEXEC_CTL, &proc_based_vmexec_ctl);
 	if (proc_based_vmexec_ctl & VMCS_PROC_BASED_VMEXEC_CTL_NMIWINEXIT_BIT)
 		return;
-	/* If blocking by STI bit and blocking by MOV SS bit are not
-	   set, generate NMI now. */
+	/* If blocking by STI bit and blocking by MOV SS bit and
+	   blocking by NMI bit are not set and no injection exists,
+	   generate NMI now. */
+	asm_vmread (VMCS_GUEST_INTERRUPTIBILITY_STATE, &is);
 	if (!(is & VMCS_GUEST_INTERRUPTIBILITY_STATE_BLOCKING_BY_STI_BIT) &&
-	    !(is & VMCS_GUEST_INTERRUPTIBILITY_STATE_BLOCKING_BY_MOV_SS_BIT)) {
+	    !(is & VMCS_GUEST_INTERRUPTIBILITY_STATE_BLOCKING_BY_MOV_SS_BIT) &&
+	    !(is & VMCS_GUEST_INTERRUPTIBILITY_STATE_BLOCKING_BY_NMI_BIT) &&
+	    vid->vmcs_intr_info.s.valid != INTR_INFO_VALID_VALID) {
 		vt_generate_nmi ();
 		return;
 	}
 	/* Use NMI-window exiting to get the correct timing to inject
 	 * NMIs.  This is a workaround for a processor that makes a VM
 	 * Entry failure when NMI is injected while blocking by STI
-	 * bit is set. */
+	 * bit is set.  If blocking by NMI bit is set, the next NMI
+	 * will be generated after IRET which makes NMI window VM
+	 * Exit. */
 	proc_based_vmexec_ctl |= VMCS_PROC_BASED_VMEXEC_CTL_NMIWINEXIT_BIT;
 	asm_vmwrite (VMCS_PROC_BASED_VMEXEC_CTL, proc_based_vmexec_ctl);
 }
@@ -299,7 +335,7 @@ do_exception (void)
 			current->u.vt.intr.vmcs_instruction_len = len;
 			break;
 		case INTR_INFO_TYPE_NMI:
-			vt_nmi_has_come ();
+			nmi_inc_count ();
 			break;
 		case INTR_INFO_TYPE_EXTERNAL:
 		default:
@@ -348,10 +384,6 @@ do_nmi_window (void)
 static void
 vt__nmi (void)
 {
-	struct vt_intr_data *vid = &current->u.vt.intr;
-
-	if (vid->vmcs_intr_info.s.valid == INTR_INFO_VALID_VALID)
-		return;
 	if (!current->nmi.get_nmi_count ())
 		return;
 	vt_nmi_has_come ();
@@ -376,26 +408,38 @@ vt__event_delivery_setup (void)
 static enum vt__status
 call_vt__vmlaunch (void)
 {
-	if (asm_vmlaunch_regs (&current->u.vt.vr))
+	switch (asm_vmlaunch_regs (&current->u.vt.vr)) {
+	case 0:
+		return VT__VMEXIT;
+	case 1:
+		return VT__NMI;
+	default:
 		return VT__VMENTRY_FAILED;
-	return VT__VMEXIT;
+	}
 }
 
 static enum vt__status
 call_vt__vmresume (void)
 {
-	if (asm_vmresume_regs (&current->u.vt.vr))
+	switch (asm_vmresume_regs (&current->u.vt.vr)) {
+	case 0:
+		return VT__VMEXIT;
+	case 1:
+		return VT__NMI;
+	default:
 		return VT__VMENTRY_FAILED;
-	return VT__VMEXIT;
+	}
 }
 
-static void
+static bool
 vt__vm_run_first (void)
 {
 	enum vt__status status;
 	ulong errnum;
 
 	status = call_vt__vmlaunch ();
+	if (status == VT__NMI)
+		return true;
 	if (status != VT__VMEXIT) {
 		asm_vmread (VMCS_VM_INSTRUCTION_ERR, &errnum);
 		if (status == VT__VMENTRY_FAILED)
@@ -404,18 +448,21 @@ vt__vm_run_first (void)
 		else
 			panic ("Fatal error: Strange status.");
 	}
+	return false;
 }
 
-static void
+static bool
 vt__vm_run (void)
 {
 	enum vt__status status;
 	ulong errnum;
+	bool ret;
 
 	if (current->u.vt.first) {
-		vt__vm_run_first ();
-		current->u.vt.first = false;
-		return;
+		ret = vt__vm_run_first ();
+		if (!ret)
+			current->u.vt.first = false;
+		return ret;
 	}
 	if (current->u.vt.exint_update)
 		vt_update_exint ();
@@ -424,6 +471,8 @@ vt__vm_run (void)
 	status = call_vt__vmresume ();
 	if (current->u.vt.saved_vmcs)
 		spinlock_lock (&currentcpu->suspend_lock);
+	if (status == VT__NMI)
+		return true;
 	if (status != VT__VMEXIT) {
 		asm_vmread (VMCS_VM_INSTRUCTION_ERR, &errnum);
 		if (status == VT__VMENTRY_FAILED)
@@ -432,21 +481,24 @@ vt__vm_run (void)
 		else
 			panic ("Fatal error: Strange status.");
 	}
+	return false;
 }
 
 /* FIXME: bad handling of TF bit */
-static void
+static bool
 vt__vm_run_with_tf (void)
 {
 	ulong rflags;
+	bool ret;
 
 	vt_read_flags (&rflags);
 	rflags |= RFLAGS_TF_BIT;
 	vt_write_flags (rflags);
-	vt__vm_run ();
+	ret = vt__vm_run ();
 	vt_read_flags (&rflags);
 	rflags &= ~RFLAGS_TF_BIT;
 	vt_write_flags (rflags);
+	return ret;
 }
 
 static void
@@ -496,8 +548,8 @@ vt__event_delivery_check (void)
 	vid->vmcs_intr_info.v = ivif.v;
 }
 
-static void
-do_init_signal (void)
+void
+vt_init_signal (void)
 {
 	if (currentcpu->cpunum == 0)
 		handle_init_to_bsp ();
@@ -507,6 +559,12 @@ do_init_signal (void)
 	current->halt = false;
 	current->u.vt.vr.sw.enable = 0;
 	vt_update_exception_bmp ();
+}
+
+static void
+do_init_signal (void)
+{
+	initipi_inc_count ();
 }
 
 static void
@@ -597,7 +655,7 @@ do_task_switch (void)
 		u64 v;
 	} tss1_desc, tss2_desc;
 	struct tss32 tss32_1, tss32_2;
-	ulong rflags, tmp;
+	ulong rflags, tmp, len;
 	u16 tmp16;
 
 	/* FIXME: 16bit TSS */
@@ -659,7 +717,19 @@ do_task_switch (void)
 	vt_read_sreg_sel (SREG_FS, &tmp16); tss32_1.fs = tmp16;
 	vt_read_sreg_sel (SREG_GS, &tmp16); tss32_1.gs = tmp16;
 	tss32_1.eflags = rflags;
-	vt_read_ip (&tmp); tss32_1.eip = tmp;
+	if (eqt.s.src == EXIT_QUAL_TS_SRC_INTR &&
+	    current->u.vt.intr.vmcs_intr_info.s.valid ==
+	    INTR_INFO_VALID_VALID)
+		/* If task switch is initiated by external interrupt,
+		 * NMI or hardware exception, the VM-exit instruction
+		 * length field is undefined.  In case of software
+		 * interrupt or software exception, the valid field is
+		 * set to invalid by the vt__event_delivery_check()
+		 * function. */
+		len = 0;
+	else
+		asm_vmread (VMCS_VMEXIT_INSTRUCTION_LEN, &len);
+	vt_read_ip (&tmp); tss32_1.eip = tmp + len;
 	r = write_linearaddr_q (gdtr_base + tr_sel, tss1_desc.v);
 	if (r != VMMERR_SUCCESS)
 		goto err;
@@ -775,16 +845,22 @@ err:
 	panic ("do_task_switch: error %d", r);
 }
 
-static void
-do_xsetbv (void)
+static bool
+is_cpl0 (void)
 {
 	u16 cs;
 
+	vt_read_sreg_sel (SREG_CS, &cs);
+	return !(cs & 3);
+}
+
+static void
+do_xsetbv (void)
+{
 	/* According to the manual, XSETBV causes a VM exit regardless
 	 * of the value of CPL.  Maybe it is different from the real
 	 * behavior, but check CPL here to be sure. */
-	vt_read_sreg_sel (SREG_CS, &cs);
-	if ((cs & 3) || cpu_emul_xsetbv ())
+	if (!is_cpl0 () || cpu_emul_xsetbv ())
 		make_gp_fault (0);
 	else
 		add_ip ();
@@ -802,41 +878,164 @@ do_ept_violation (void)
 }
 
 static void
-do_re_external_int (void)
+vt_inject_interrupt (void)
 {
-	ulong rflags;
 	int num;
 
+	if (current->u.vt.intr.vmcs_intr_info.s.valid == INTR_INFO_VALID_VALID)
+		return;
+	if (current->pass_vm)
+		vt_exint_pass (!!config.vmm.no_intr_intercept);
+	vt_exint_assert (false);
+	num = current->exint.ack ();
+	if (num >= 0)
+		vt_generate_external_int (num);
+}
+
+/* If an external interrupt is asserted and it can be injected now,
+ * inject it to avoid unnecessary VM entry/exit.  If it cannot be
+ * injected now, it will be injected when interrupt window VM exit
+ * occurred.  Note: when an external interrupt causes a VM exit, the
+ * blocking by STI bit is apparently not set on physical machines, but
+ * it may be set on virtual machines.  Therefore checking the bit is
+ * necessary. */
+static void
+vt_interrupt (void)
+{
+	ulong rflags;
+	ulong is;
+
+	if (!current->u.vt.exint_assert)
+		return;
+	/* If RFLAGS.IF=1... */
 	vt_read_flags (&rflags);
-	if (rflags & RFLAGS_IF_BIT) {
-		num = do_externalint_enable ();
-		if (num >= 0)
-			vt_generate_external_int (num);
-		current->u.vt.exint_re_pending = false;
-		current->u.vt.exint_update = true;
-	} else {
-		current->u.vt.exint_re_pending = true;
-		current->u.vt.exint_update = true;
-	}
+	if (!(rflags & RFLAGS_IF_BIT))
+		return;
+	/* ..., blocking by STI bit=0 and blocking by MOV SS bit=0... */
+	asm_vmread (VMCS_GUEST_INTERRUPTIBILITY_STATE, &is);
+	if ((is & VMCS_GUEST_INTERRUPTIBILITY_STATE_BLOCKING_BY_STI_BIT) ||
+	    (is & VMCS_GUEST_INTERRUPTIBILITY_STATE_BLOCKING_BY_MOV_SS_BIT))
+		return;
+	/* ..., then inject an interrupt now. */
+	vt_inject_interrupt ();
 }
 
 static void
 do_external_int (void)
 {
-	if (current->u.vt.vr.re && current->u.vt.exint_pass)
-		do_re_external_int ();
-	else
-		do_exint_pass ();
+	if (current->pass_vm) {
+		vt_exint_pass (true);
+		vt_exint_assert (true);
+	}
 }
 
 static void
 do_interrupt_window (void)
 {
-	if (current->u.vt.exint_re_pending && current->u.vt.vr.re &&
-	    current->u.vt.exint_pass)
-		do_re_external_int ();
-	if (current->u.vt.exint_pending)
-		current->exint.hlt ();
+	vt_inject_interrupt ();
+}
+
+static void
+do_vmxon (void)
+{
+	if (!current->u.vt.vmxe) {
+		make_ud_fault ();
+		return;
+	}
+	if (!is_cpl0 ()) {
+		make_gp_fault (0);
+		return;
+	}
+	if (current->u.vt.vmxon) {
+		vt_emul_vmxon_in_vmx_root_mode ();
+		return;
+	}
+
+	vt_emul_vmxon ();
+}
+
+static bool
+is_vm_allowed (void)
+{
+	if (!current->u.vt.vmxon) {
+		make_ud_fault ();
+		return false;
+	}
+	if (!is_cpl0 ()) {
+		make_gp_fault (0);
+		return false;
+	}
+	return true;
+}
+
+static void
+do_vmxoff (void)
+{
+	if (is_vm_allowed ())
+		vt_emul_vmxoff ();
+}
+
+static void
+do_vmclear (void)
+{
+	if (is_vm_allowed ())
+		vt_emul_vmclear ();
+}
+
+static void
+do_vmptrld (void)
+{
+	if (is_vm_allowed ())
+		vt_emul_vmptrld ();
+}
+
+static void
+do_vmptrst (void)
+{
+	if (is_vm_allowed ())
+		vt_emul_vmptrst ();
+}
+
+static void
+do_invept (void)
+{
+	if (is_vm_allowed ())
+		vt_emul_invept ();
+}
+
+static void
+do_invvpid (void)
+{
+	if (is_vm_allowed ())
+		vt_emul_invvpid ();
+}
+
+static void
+do_vmread (void)
+{
+	if (is_vm_allowed ())
+		vt_emul_vmread ();
+}
+
+static void
+do_vmwrite (void)
+{
+	if (is_vm_allowed ())
+		vt_emul_vmwrite ();
+}
+
+static void
+do_vmlaunch (void)
+{
+	if (is_vm_allowed ())
+		vt_emul_vmlaunch ();
+}
+
+static void
+do_vmresume (void)
+{
+	if (is_vm_allowed ())
+		vt_emul_vmresume ();
 }
 
 static void
@@ -901,6 +1100,39 @@ vt__exit_reason (void)
 		break;
 	case EXIT_REASON_NMI_WINDOW:
 		do_nmi_window ();
+		break;
+	case EXIT_REASON_VMXON:
+		do_vmxon ();
+		break;
+	case EXIT_REASON_VMXOFF:
+		do_vmxoff ();
+		break;
+	case EXIT_REASON_VMCLEAR:
+		do_vmclear ();
+		break;
+	case EXIT_REASON_VMPTRLD:
+		do_vmptrld ();
+		break;
+	case EXIT_REASON_VMPTRST:
+		do_vmptrst ();
+		break;
+	case EXIT_REASON_INVEPT:
+		do_invept ();
+		break;
+	case EXIT_REASON_INVVPID:
+		do_invvpid ();
+		break;
+	case EXIT_REASON_VMREAD:
+		do_vmread ();
+		break;
+	case EXIT_REASON_VMWRITE:
+		do_vmwrite ();
+		break;
+	case EXIT_REASON_VMLAUNCH:
+		do_vmlaunch ();
+		break;
+	case EXIT_REASON_VMRESUME:
+		do_vmresume ();
 		break;
 	default:
 		printf ("Fatal error: handler not implemented.\n");
@@ -1006,11 +1238,14 @@ vt_mainloop (void)
 	enum vmmerr err;
 	ulong cr0, acr;
 	u64 efer;
+	bool nmi;
 
 	for (;;) {
 		schedule ();
 		vt_vmptrld (current->u.vt.vi.vmcs_region_phys);
 		panic_test ();
+		if (current->initipi.get_init_count ())
+			vt_init_signal ();
 		if (current->halt) {
 			vt__halt ();
 			current->halt = false;
@@ -1070,20 +1305,26 @@ vt_mainloop (void)
 		/* when the state is switching, do single step */
 		if (current->u.vt.vr.sw.enable) {
 			vt__nmi ();
+			vt_interrupt ();
 			vt__event_delivery_setup ();
 			vt_msr_own_process_msrs ();
-			vt__vm_run_with_tf ();
+			nmi = vt__vm_run_with_tf ();
 			vt_paging_tlbflush ();
-			vt__event_delivery_check ();
-			vt__exit_reason ();
+			if (!nmi) {
+				vt__event_delivery_check ();
+				vt__exit_reason ();
+			}
 		} else {	/* not switching */
 			vt__nmi ();
+			vt_interrupt ();
 			vt__event_delivery_setup ();
 			vt_msr_own_process_msrs ();
-			vt__vm_run ();
+			nmi = vt__vm_run ();
 			vt_paging_tlbflush ();
-			vt__event_delivery_check ();
-			vt__exit_reason ();
+			if (!nmi) {
+				vt__event_delivery_check ();
+				vt__exit_reason ();
+			}
 		}
 	}
 }
@@ -1137,15 +1378,8 @@ vt_register_status_callback (void)
 }
 
 void
-vt_init_signal (void)
-{
-	do_init_signal ();
-}
-
-void
 vt_start_vm (void)
 {
-	current->exint.int_enabled ();
 	vt_paging_start ();
 	vt_mainloop ();
 }

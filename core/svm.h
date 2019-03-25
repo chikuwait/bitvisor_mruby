@@ -56,10 +56,13 @@ struct svm {
 	struct svm_msrbmp *msrbmp;
 	struct svm_np *np;
 	bool lme, lma, svme;
+	bool init_signal;
 	struct vmcb *saved_vmcb;
 	u64 *cr0, *cr3, *cr4;
 	u64 gcr0, gcr3, gcr4;
 	u64 vm_cr, hsave_pa;
+	u64 iret_dr7;
+	bool nmi_pending;
 };
 
 struct svm_pcpu_data {
@@ -72,6 +75,9 @@ struct svm_pcpu_data {
 	u32 nasid;
 };
 
+void svm_exint_pass (bool enable);
+void svm_exint_assert (bool assert);
+void svm_generate_external_int (uint num);
 void vmctl_svm_init (void);
 
 #endif

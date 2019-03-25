@@ -39,9 +39,12 @@
 #include "string.h"
 #include "uefi.h"
 
+#define EVT_SIGNAL_EXIT_BOOT_SERVICES 0x00000201
+
 #pragma GCC diagnostic push
 #pragma GCC diagnostic ignored "-Wmissing-braces"
 static EFI_GUID pci_io_protocol_guid = EFI_PCI_IO_PROTOCOL_GUID;
+static EFI_GUID device_path_protocol_guid = EFI_DEVICE_PATH_PROTOCOL_GUID;
 #pragma GCC diagnostic pop
 
 u8 uefi_memory_map_data[16384];
@@ -79,6 +82,19 @@ call_uefi_free_pages (u64 phys, u64 npages)
 	return calluefi (uefi_free_pages, 2, phys, npages);
 }
 
+int
+call_uefi_create_event_exit_boot_services (u64 phys, u64 context,
+					   void **event_ret)
+{
+	static EFI_EVENT event;
+	int ret;
+
+	ret = calluefi (uefi_create_event, 5, EVT_SIGNAL_EXIT_BOOT_SERVICES,
+			EFI_TPL_NOTIFY, phys, context, sym_to_phys (&event));
+	*event_ret = event;
+	return ret;
+}
+
 u32
 call_uefi_getkey (void)
 {
@@ -103,6 +119,83 @@ call_uefi_putchar (unsigned char c)
 		  sym_to_phys (&buf));
 }
 
+static int
+guid_cmp (EFI_GUID *p, EFI_GUID *q)
+{
+	return memcmp (p, q, sizeof (EFI_GUID));
+}
+
+/*
+ * A controller should have only Device Path Protocol,
+ * and PCI IO Protocol remain. This is to ensure that it can be
+ * reconnected later.
+ */
+static void
+cleanup_protocols (ulong controller)
+{
+	static u64 protocol_list, n_protocol_list;
+	int err;
+	err = calluefi (uefi_protocols_per_handle, 3,
+			controller,
+			sym_to_phys (&protocol_list),
+			sym_to_phys (&n_protocol_list));
+	if (err) {
+		printf ("Error in ProtocolsPerHandle with: %d\n", err);
+		return;
+	}
+	ulong *guid_list = mapmem_hphys (protocol_list, sizeof *guid_list *
+					 n_protocol_list, 0);
+	uint n_uninstalled = 0, n_should_be_uninstalled = 0;
+	uint i;
+	for (i = 0; i < n_protocol_list; i++) {
+		EFI_GUID *protocol_guid;
+		protocol_guid = mapmem_hphys (guid_list[i],
+					      sizeof *protocol_guid, 0);
+		int skip = !guid_cmp (protocol_guid, &pci_io_protocol_guid) ||
+			!guid_cmp (protocol_guid, &device_path_protocol_guid);
+		unmapmem (protocol_guid, sizeof *protocol_guid);
+		if (skip)
+			continue;
+		n_should_be_uninstalled++;
+		static u64 interface;
+		err = calluefi (uefi_open_protocol, 6,
+				controller,
+				guid_list[i],
+				sym_to_phys (&interface),
+				uefi_image_handle,
+				NULL,
+				EFI_OPEN_PROTOCOL_GET_PROTOCOL);
+		if (err) {
+			printf ("Cannot open protocol with %d\n", err);
+			continue;
+		}
+		err = calluefi (uefi_uninstall_protocol_interface, 3,
+				controller,
+				guid_list[i],
+				interface);
+		if (err) {
+			printf ("Cannot uninstall protocol with %d\n", err);
+			continue;
+		}
+		err = calluefi (uefi_open_protocol, 6,
+				controller,
+				guid_list[i],
+				sym_to_phys (&interface),
+				uefi_image_handle,
+				NULL,
+				EFI_OPEN_PROTOCOL_GET_PROTOCOL);
+		if (!err)
+			printf ("Protocol still exits after uninstall");
+		else
+			n_uninstalled++;
+	}
+	unmapmem (guid_list, sizeof *guid_list * n_protocol_list);
+	calluefi (uefi_free_pool, 1, protocol_list);
+	if (n_should_be_uninstalled > 0)
+		printf ("Uninstall %u protocol(s) successfully\n",
+			n_uninstalled);
+}
+
 /* Disconnect drivers from the controller if the PCI device location
  * matches */
 static void
@@ -125,8 +218,10 @@ disconnect_pcidev_driver (ulong tseg, ulong tbus, ulong tdev, ulong tfunc,
 	    seg == tseg && bus == tbus && dev == tdev && func == tfunc) {
 		while (retrycount-- > 0) {
 			if (!calluefi (uefi_disconnect_controller, 3,
-				       controller, NULL, NULL))
+				       controller, NULL, NULL)) {
+				cleanup_protocols (controller);
 				break;
+			}
 		}
 		printf ("[%04lX:%02lX:%02lX.%lX] %s PCI device drivers\n",
 			tseg, tbus, tdev, tfunc, retrycount < 0 ?
@@ -198,7 +293,8 @@ fill_pagetable (void *pt, u32 prev_phys, void *fillpage)
 void
 copy_uefi_bootcode (void)
 {
-	ulong efer, cr0, cr4;
+	u64 efer;
+	ulong cr0, cr4;
 	u64 bootcode;
 	u8 *p;
 
@@ -212,7 +308,7 @@ copy_uefi_bootcode (void)
 	current->vmctl.write_control_reg (CONTROL_REG_CR3, calluefi_uefi_cr3);
 	asm_rdcr4 (&cr4);
 	current->vmctl.write_control_reg (CONTROL_REG_CR4, cr4 & ~CR4_PGE_BIT);
-	asm_rdmsr (MSR_IA32_EFER, &efer);
+	asm_rdmsr64 (MSR_IA32_EFER, &efer);
 	current->vmctl.write_msr (MSR_IA32_EFER,
 				  efer & ~MSR_IA32_EFER_SVME_BIT);
 	current->vmctl.write_gdtr (calluefi_uefi_gdtr.base,

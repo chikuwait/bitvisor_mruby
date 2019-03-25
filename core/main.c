@@ -54,13 +54,15 @@
 #include "svm_init.h"
 #include "types.h"
 #include "uefi.h"
+#include "uefi_param_ext.h"
 #include "vcpu.h"
 #include "vmmcall.h"
 #include "vmmcall_boot.h"
 #include "vramwrite.h"
 #include "vt.h"
 #include "vt_init.h"
-#include <core/process.h>
+#include <share/uefi_boot.h>
+#include "mruby_process.h"
 
 static struct multiboot_info mi;
 static u32 minios_startaddr;
@@ -69,6 +71,10 @@ static u8 minios_params[OSLOADER_BOOTPARAMS_SIZE];
 static void *bios_data_area;
 static int shiftkey;
 static u8 imr_master, imr_slave;
+
+static struct uuid pass_auth_uuid = UEFI_BITVISOR_PASS_AUTH_UUID;
+static struct uuid cpu_type_uuid  = UEFI_BITVISOR_CPU_TYPE_UUID;
+
 static void
 print_boot_msg (void)
 {
@@ -294,6 +300,30 @@ get_tmpbuf (u32 *tmpbufaddr, u32 *tmpbufsize)
 }
 
 static void
+process_cpu_type_ext (void)
+{
+	phys_t cpu_type_ext_addr = uefi_param_ext_get_phys (&cpu_type_uuid);
+	if (cpu_type_ext_addr) {
+		struct cpu_type_param_ext *cpu_ext;
+
+		cpu_ext = mapmem_hphys (cpu_type_ext_addr, sizeof *cpu_ext,
+					MAPMEM_WRITE);
+		switch (currentcpu->fullvirtualize) {
+		case FULLVIRTUALIZE_VT:
+			cpu_ext->type = CPU_TYPE_INTEL;
+			break;
+		case FULLVIRTUALIZE_SVM:
+			cpu_ext->type = CPU_TYPE_AMD;
+			break;
+		default:
+			panic ("Unknown CPU type");
+			break;
+		}
+		unmapmem (cpu_ext, sizeof *cpu_ext);
+	}
+}
+
+static void
 bsp_init_thread (void *args)
 {
 	u32 tmpbufaddr, tmpbufsize;
@@ -324,19 +354,24 @@ bsp_init_thread (void *args)
 		call_initfunc ("config0");
 		load_drivers ();
 		call_initfunc ("config1");
-	} else {
+	} else if (!uefi_booted) {
 		load_drivers ();
-	}
-	if (!uefi_booted) {
 		get_tmpbuf (&tmpbufaddr, &tmpbufsize);
 		load_bootsector (bios_boot_drive, tmpbufaddr, tmpbufsize);
 		sync_cursor_pos ();
 	}
 	initregs ();
-	if (uefi_booted)
+	if (uefi_booted) {
+		process_cpu_type_ext ();
 		copy_uefi_bootcode ();
-	else
+		if (uefi_param_ext_get_phys (&pass_auth_uuid))
+			vmmcall_boot_continue();
+		call_initfunc ("config0");
+		load_drivers ();
+		call_initfunc ("config1");
+	} else {
 		copy_bootsector ();
+	}
 }
 
 static void
@@ -357,6 +392,7 @@ create_pass_vm (void)
 		load_new_vcpu (vcpu0);
 	set_fullvirtualize ();
 	sync_all_processors ();
+	current->pass_vm = true;
 	current->vmctl.vminit ();
 	call_initfunc ("pass");
 	sync_all_processors ();
@@ -408,6 +444,11 @@ resume_vm (u32 wake_addr)
 			asm_cli_and_hlt ();
 #endif
 	}
+	/* Wait for initialization completion of other processors
+	 * before starting the virtual machine to make sure that the
+	 * VMM can handle an INIT signal sent by the guest operating
+	 * system for starting processors. */
+	sync_all_processors ();
 	current->vmctl.start_vm ();
 	panic ("VM stopped.");
 }
@@ -486,6 +527,7 @@ vmm_main (struct multiboot_info *mi_arg)
 	call_initfunc ("global");
 	start_all_processors (bsp_proc, ap_proc);
 }
+/*
 void
 mruby_process_test()
 {
@@ -493,7 +535,7 @@ mruby_process_test()
     load_mruby_process(mrbp);
     mruby_funcall(mrbp,"helloworld",1,"chikuwa");
     exit_mruby_process(mrbp);
-}
+}*/
 INITFUNC ("pcpu2", virtualization_init_pcpu);
 INITFUNC ("pcpu5", create_pass_vm);
 INITFUNC ("dbsp5", wait_for_create_pass_vm);
@@ -501,4 +543,4 @@ INITFUNC ("bsp0", debug_on_shift_key);
 INITFUNC ("global1", print_boot_msg);
 INITFUNC ("global3", copy_minios);
 INITFUNC ("global3", get_shiftflags);
-INITFUNC ("msg3", mruby_process_test);
+//INITFUNC ("msg3", mruby_process_test);

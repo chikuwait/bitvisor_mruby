@@ -34,31 +34,19 @@
 #include "cache.h"
 #include "cpu_mmu_spt.h"
 #include "cpuid.h"
+#include "exint.h"
 #include "gmm.h"
+#include "initipi.h"
 #include "io_io.h"
 #include "localapic.h"
 #include "mmio.h"
 #include "msr.h"
+#include "nmi.h"
 #include "svm.h"
 #include "types.h"
 #include "vmctl.h"
 #include "vt.h"
 #include "xsetbv.h"
-
-struct exint_func {
-	void (*int_enabled) (void);
-	void (*exintfunc_default) (int num);
-	void (*hlt) (void);
-};
-
-struct nmi_func {
-	unsigned int (*get_nmi_count) (void);
-};
-
-struct sx_init_func {
-	unsigned int (*get_init_count) (void);
-	void (*inc_init_count) (void);
-};
 
 struct vcpu {
 	struct vcpu *next;
@@ -70,6 +58,7 @@ struct vcpu {
 	bool initialized;
 	u64 tsc_offset;
 	bool updateip;
+	bool pass_vm;
 	u64 pte_addr_mask;
 	struct cpu_mmu_spt_data spt;
 	struct cpuid_data cpuid;
@@ -85,7 +74,7 @@ struct vcpu {
 	struct xsetbv_data xsetbv;
 	struct acpi_data acpi;
 	struct localapic_data localapic;
-	struct sx_init_func sx_init;
+	struct initipi_func initipi;
 	struct cache_data cache;
 };
 

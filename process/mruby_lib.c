@@ -42,7 +42,7 @@ fwrite(const void *buf, size_t size, size_t num, FILE *fp)
 {
     return 0;
 }
-
+/*
 int
 strncmp(const char *first, const char *last, unsigned int count)
 {
@@ -74,7 +74,7 @@ strncmp(const char *first, const char *last, unsigned int count)
         last++;
     }
     return 0;
-}
+}*/
 
 static void*
 memset(void *s, int c, size_t n)

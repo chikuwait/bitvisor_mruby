@@ -36,10 +36,9 @@ typedef long long          int64_t;
 typedef int                int32_t;
 typedef short              int16_t;
 typedef char               int8_t;
-typedef long int ptrdiff_t;
 
 typedef signed char int_fast8_t;
-typedef short int_fast_16_t;
+typedef short int_fast16_t;
 typedef long int_fast32_t;
 typedef long long int_fast64_t;
 typedef unsigned char uint_fast8_t;

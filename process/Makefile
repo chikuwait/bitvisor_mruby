@@ -1,4 +1,4 @@
-CFLAGS +=-Iprocess/lib -DMRB_DISABLE_STDIO -DBITVISOR_PROCESS -DLITTLEENDIAN -DSOFTFLOAT_FAST_INT64 -Iprocess/mruby_core/include/
+CFLAGS += -Iprocess/lib -DMRB_DISABLE_STDIO -DBITVISOR_PROCESS -DLITTLEENDIAN -DSOFTFLOAT_FAST_INT64 -Iprocess/mruby_core/include/
 
 bins-1 += debug help init log panic recvexample sendexample sendint mruby
 bins-1 += serialtest shell
@@ -8,6 +8,7 @@ bins-$(CONFIG_VPN) += vpn
 asubdirs-1 += lib
 bins-$(CONFIG_IP) += echoctl
 bins-$(CONFIG_PCI_MONITOR) += monitor
+
 debug-objs = debug.o
 help-objs = help.o
 idman-objs = idman.o

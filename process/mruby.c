@@ -14,7 +14,7 @@
 
 uint8_t mrb_bin_code[];
 u8 *binary_pointer;
-int heap[300000], heaplen = 300000;
+int heap[600000], heaplen = 600000;
 
 typedef struct{
     mrb_state *mrb;
@@ -127,9 +127,12 @@ mrb_callback_receiver(int arg, struct msgbuf *buf){
 
 void
 mrb_set_pointer(struct msgbuf *buf){
+    if(binary_pointer != NULL){
+        free(binary_pointer);
+    }
     unsigned int *byte = buf[1].base;
-    binary_pointer = (u8 *)malloc(sizeof(u8)*(*byte));
-    binary_pointer = memcpy(binary_pointer,buf->base,sizeof(u8)*(*byte));
+    binary_pointer = (u8 *)malloc(sizeof(u8) * (*byte));
+    binary_pointer = memcpy(binary_pointer,buf[0].base,sizeof(u8) * (*byte));
 }
 
 int

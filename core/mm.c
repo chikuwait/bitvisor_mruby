@@ -51,7 +51,7 @@
 #define VMMSIZE_ALL		(128 * 1024 * 1024)
 #define NUM_OF_PAGES		(VMMSIZE_ALL >> PAGESIZE_SHIFT)
 #define NUM_OF_ALLOCSIZE	13
-#define MAPMEM_ADDR_START	0xF0000000
+#define MAPMEM_ADDR_START	0xD0000000
 #define MAPMEM_ADDR_END		0xFF000000
 #define NUM_OF_ALLOCLIST	7
 #define ALLOCLIST_SIZE(n)	((1 << (n)) * 16)
@@ -497,7 +497,6 @@ virt_to_page (virt_t virt)
 	unsigned int i;
 
 	i = (virt - VMM_START_VIRT) >> PAGESIZE_SHIFT;
-    //printf("virt:%x\n",virt);
 	ASSERT (i < NUM_OF_PAGES);
 	return &pagestruct[i];
 }
@@ -769,6 +768,7 @@ map_hphys (void)
 static void
 unmap_user_area (void)
 {
+	ulong cr4;
 	void *virt;
 	phys_t phys;
 #ifdef USE_PAE
@@ -792,7 +792,12 @@ unmap_user_area (void)
 	phys = phys2;
 #endif
 #endif
+	/* Disable Page Global temporarily to flush TLBs for process
+	 * space */
+	asm_rdcr4 (&cr4);
+	asm_wrcr4 (cr4 & ~CR4_PGE_BIT);
 	asm_wrcr3 (phys);
+	asm_wrcr4 (cr4);
 	currentcpu->cr3 = phys;
 	/* Free the dummy page */
 	mm_process_free (mm_process_switch (1));
@@ -2242,7 +2247,11 @@ retry:
 		if (v + (i << PAGESIZE_SHIFT) >= MAPMEM_ADDR_END) {
 			v = MAPMEM_ADDR_START;
 			loopcount++;
-			ASSERT (loopcount == 1);
+			if (loopcount > 1) {
+				spinlock_unlock (&mapmem_lock);
+				panic ("%s: loopcount %d offset 0x%X len 0x%X",
+				       __func__, loopcount, offset, len);
+			}
 			goto retry;
 		}
 		pmap_seek (m, v + (i << PAGESIZE_SHIFT), 1);

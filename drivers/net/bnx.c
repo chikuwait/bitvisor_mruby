@@ -56,6 +56,7 @@ static const char driver_longname[] =
 #define HOST_TX_RING_LEN 512
 #define HOST_RX_PROD_RING_LEN 512
 #define HOST_RX_RETR_RING_LEN 512
+#define RX_BUF_OFFSET 4		/* For VLAN */
 
 struct bnx_tx_desc {
 	u32 addr_high;
@@ -93,6 +94,9 @@ struct bnx {
 	struct pci_device *pci;
 	phys_t base;
 	u32 len;
+	bool disconnected;
+	spinlock_t ok_lock;
+	bool bridge_changing;
 
 	bool mac_valid;
 	u8 mac[6];
@@ -125,6 +129,7 @@ struct bnx {
 	u32 rx_retr_consumer;
 	void **rx_buf;
 	bool rx_enabled;
+	bool rx_need_update;
 
 	struct netdata *nethandle;
 	net_recv_callback_t *recvphys_func;
@@ -132,6 +137,8 @@ struct bnx {
 
 	void *virtio_net;
 	u8 config_override[0x100];
+	bool hotplugpass;
+	bool hotplug_detected;
 };
 
 #define BNXPCI_REGBASE		0x78
@@ -163,6 +170,8 @@ struct bnx {
 #define BNXMEM_TXRCB_LENFLAGS	0x108
 #define BNXMEM_RXRCB_RETR_RINGADDR 0x200
 #define BNXMEM_RXRCB_RETR_LENFLAGS 0x208
+
+static bool bnx_hotplug = false;
 
 static inline void
 bnx_print_access (int wr, char *table[], int offset, bool force)
@@ -228,19 +237,13 @@ bnx_mmiowrite32 (struct bnx *bnx, int offset, u32 data)
 static void
 bnx_pciread32 (struct bnx *bnx, int offset, u32 *data)
 {
-	pci_config_address_t addr = bnx->pci->address;
-
-	addr.reg_no = offset >> 2;
-	*data = pci_read_config_data32(addr, 0);
+	pci_config_read (bnx->pci, data, sizeof *data, offset);
 }
 
 static void
 bnx_pciwrite32 (struct bnx *bnx, int offset, u32 data)
 {
-	pci_config_address_t addr = bnx->pci->address;
-
-	addr.reg_no = offset >> 2;
-	pci_write_config_data32(addr, 0, data);
+	pci_config_write (bnx->pci, &data, sizeof data, offset);
 }
 
 #if 0				/* VMM ensures the availability of MMIOs. */
@@ -320,11 +323,12 @@ bnx_ring_alloc (struct bnx *bnx)
 	for (i = 0; i < bnx->rx_prod_ring_len; i++) {
 		alloc_page (&virt, &phys);
 		memset (&bnx->rx_prod_ring[i], 0, sizeof bnx->rx_prod_ring[i]);
-		bnx->rx_prod_ring[i].addr_low = phys & 0xffffffff;
-		bnx->rx_prod_ring[i].addr_high = phys >> 32;
+		bnx->rx_prod_ring[i].addr_low = (phys + RX_BUF_OFFSET) &
+			0xffffffff;
+		bnx->rx_prod_ring[i].addr_high = (phys + RX_BUF_OFFSET) >> 32;
 		bnx->rx_prod_ring[i].length = HOST_FRAME_MAXLEN;
 		bnx->rx_prod_ring[i].index = i;
-		bnx->rx_buf[i] = virt;
+		bnx->rx_buf[i] = virt + RX_BUF_OFFSET;
 	}
 	pagenum =
 		(sizeof(struct bnx_rx_desc) * HOST_RX_RETR_RING_LEN - 1)
@@ -457,6 +461,41 @@ bnx_call_recv (struct bnx *bnx, void *buf, int buflen)
 				    bnx->recvphys_param, NULL);
 }
 
+static void
+bnx_call_recv_vlan (struct bnx *bnx, void *buf, int buflen, u16 vlan_tag)
+{
+	unsigned int pktsize = buflen - 4;
+	u32 *move_from, *move_to;
+	union {
+		u8 b[4];
+		u32 v;
+	} vlan;
+	int i;
+
+	/* The buf address must be the allocated address +
+	 * RX_BUF_OFFSET.  This function uses the RX_BUF_OFFSET bytes
+	 * to insert 802.1Q tag. */
+	ASSERT (buflen > 0);
+	if (bnx->recvphys_func && buflen > 6 * 2) {
+		/* Move destination/source MAC address to buf-4.  Use
+		 * for-loop since memmove() is not available. */
+		move_from = buf;
+		move_to = buf - 4;
+		for (i = 0; i < 6 * 2 / sizeof (u32); i++)
+			*move_to++ = *move_from++;
+		/* Insert 802.1Q tag */
+		vlan.b[0] = 0x81; /* 802.1Q */
+		vlan.b[1] = 0x00; /* 802.1Q */
+		vlan.b[2] = vlan_tag >> 8;
+		vlan.b[3] = vlan_tag;
+		*move_to = vlan.v;
+		buf -= 4;
+		pktsize += 4;
+		bnx->recvphys_func (bnx, 1, &buf, &pktsize,
+				    bnx->recvphys_param, NULL);
+	}
+}
+
 static void bnx_handle_recv (struct bnx *bnx);
 
 static void
@@ -506,6 +545,57 @@ bnx_handle_status (struct bnx *bnx)
 	spinlock_unlock (&bnx->status_lock);
 }
 
+static int
+is_bnx_ok (struct bnx *bnx)
+{
+	if (bnx->disconnected)
+		return 0;
+	if (bnx->bridge_changing)
+		return 0;
+	struct pci_device *bridge = bnx->pci->parent_bridge;
+	static const u32 cmdreq = PCI_CONFIG_COMMAND_BUSMASTER |
+		PCI_CONFIG_COMMAND_MEMENABLE;
+	while (bridge) {
+		if ((bridge->config_space.command & cmdreq) != cmdreq)
+			return 0;
+		u64 prefetchable_memory_base;
+		prefetchable_memory_base = bridge->config_space.regs32[10];
+		prefetchable_memory_base = (prefetchable_memory_base << 32) |
+			(bridge->config_space.regs32[9] & 0xFFF0) << 16;
+		u64 prefetchable_memory_limit;
+		prefetchable_memory_limit = bridge->config_space.regs32[11];
+		prefetchable_memory_limit = (prefetchable_memory_limit << 32) |
+			(bridge->config_space.regs32[9] | 0xFFFFF);
+		if (prefetchable_memory_base > prefetchable_memory_limit ||
+		    bnx->base < prefetchable_memory_base ||
+		    bnx->base + 0xFFFF > prefetchable_memory_limit) {
+			/* The prefetchable bit in a BAR of a bnx
+			 * device is always set but strangely its
+			 * address assigned by iMac 2017 firmware is
+			 * in non-prefetchable memory after warm
+			 * reboot.  So check memory base/limit too. */
+			u32 memory_base = (bridge->config_space.regs32[8] &
+					   0xFFF0) << 16;
+			u32 memory_limit = bridge->config_space.regs32[8] |
+				0xFFFFF;
+			if (memory_base > memory_limit ||
+			    bnx->base < memory_base ||
+			    bnx->base + 0xFFFF > memory_limit)
+				return 0;
+		}
+		bridge = bridge->parent_bridge;
+	}
+	u32 cmd;
+	spinlock_lock (&bnx->reg_lock);
+	bnx_mmioread32 (bnx, 4, &cmd);
+	spinlock_unlock (&bnx->reg_lock);
+	if (cmd == 0xFFFFFFFF)	/* Cannot access the device */
+		return 0;
+	if ((cmd & cmdreq) != cmdreq)
+		return 0;
+	return 1;
+}
+
 static void
 bnx_handle_recv (struct bnx *bnx)
 {
@@ -529,11 +619,14 @@ bnx_handle_recv (struct bnx *bnx)
 
 		desc = bnx->rx_retr_ring[bnx->rx_retr_consumer];
 		if (!(desc.flags & (1 << 10)) && /* not error */
-		    !(desc.flags & (1 << 6)) &&	 /* not VLAN */
 		    desc.length > 0 && desc.length <= HOST_FRAME_MAXLEN) {
 			buf = bnx->rx_buf[desc.index];
 			buf_len = desc.length;
-			bnx_call_recv (bnx, buf, buf_len);
+			if (!(desc.flags & (1 << 6))) /* not VLAN */
+				bnx_call_recv (bnx, buf, buf_len);
+			else
+				bnx_call_recv_vlan (bnx, buf, buf_len,
+						    desc.vlan_tag);
 		}
 		bnx_ring_update (&bnx->rx_retr_consumer,
 				 bnx->rx_retr_ring_len);
@@ -546,10 +639,23 @@ bnx_handle_recv (struct bnx *bnx)
 				 bnx->rx_prod_ring_len);
 	}
 	num = i;
-	spinlock_lock (&bnx->reg_lock);
-	bnx_mmiowrite32 (bnx, BNXREG_HMBOX_RX_CONS0, bnx->rx_retr_consumer);
-	bnx_mmiowrite32 (bnx, BNXREG_HMBOX_RX_PROD,  bnx->rx_prod_producer);
-	spinlock_unlock (&bnx->reg_lock);
+	if (num)
+		bnx->rx_need_update = true;
+	if (!bnx->rx_need_update)
+		return;
+
+	spinlock_lock (&bnx->ok_lock);
+	if (is_bnx_ok (bnx)) {
+		bnx->rx_need_update = false;
+		spinlock_lock (&bnx->reg_lock);
+		bnx_mmiowrite32 (bnx, BNXREG_HMBOX_RX_CONS0,
+				 bnx->rx_retr_consumer);
+		bnx_mmiowrite32 (bnx, BNXREG_HMBOX_RX_PROD,
+				 bnx->rx_prod_producer);
+		spinlock_unlock (&bnx->reg_lock);
+	}
+	spinlock_unlock (&bnx->ok_lock);
+
 	if (num) {
 		printd (15, "Received %d packets ("
 			"Return Producer: %d, Consumer: %d / "
@@ -602,16 +708,21 @@ bnx_xmit (struct bnx *bnx, void *buf, int buflen)
 	if (!bnx->tx_enabled)
 		return;
 	spinlock_lock (&bnx->tx_lock);
+	bnx->tx_consumer = bnx->status->tx_consumer;
 	if ((bnx->tx_producer + 1) % bnx->tx_ring_len != bnx->tx_consumer) {
 		memcpy (bnx->tx_buf[bnx->tx_producer], buf, buflen);
 		bnx->tx_ring[bnx->tx_producer].len_flags = buflen << 16 | 0x84;
 		bnx->tx_ring[bnx->tx_producer].vlan_tag = 0;
 		bnx->tx_producer = (bnx->tx_producer + 1) % bnx->tx_ring_len;
+	}
+	spinlock_lock (&bnx->ok_lock);
+	if (is_bnx_ok (bnx)) {
 		spinlock_lock (&bnx->reg_lock);
 		bnx_mmiowrite32 (bnx, BNXREG_HMBOX_TX_PROD,
 				 bnx->tx_producer);
 		spinlock_unlock (&bnx->reg_lock);
 	}
+	spinlock_unlock (&bnx->ok_lock);
 	spinlock_unlock (&bnx->tx_lock);
 }
 
@@ -790,6 +901,41 @@ getinfo_physnic (void *handle, struct nicinfo *info)
 	memcpy (info->mac_address, bnx->mac, sizeof bnx->mac);
 }
 
+static bool
+bnx_hotplug_detect (struct bnx *bnx)
+{
+	/* Check the rx producer ring buffer address to detect
+	 * hot plugging */
+	u32 orig_regbase;
+	bnx_pciread32 (bnx, BNXPCI_REGBASE, &orig_regbase);
+	bnx_pciwrite32 (bnx, BNXPCI_REGBASE, 0xC0000000 +
+			BNXREG_RXRCB_PROD_RINGADDR + 4);
+	u32 ringaddr_lower;
+	bnx_pciread32 (bnx, BNXPCI_REGDATA, &ringaddr_lower);
+	bnx_pciwrite32 (bnx, BNXPCI_REGBASE, orig_regbase);
+	return (ringaddr_lower != (bnx->rx_prod_ring_phys & 0xFFFFFFFF));
+}
+
+static bool
+bnx_hotplugpass_test (struct bnx *bnx)
+{
+	if (bnx->hotplugpass && bnx_hotplug_detect (bnx)) {
+		bnx->hotplug_detected = true;
+		return true;
+	}
+	return false;
+}
+
+static bool
+bnx_hotplugpass (struct bnx *bnx)
+{
+	if (!bnx)
+		return true;
+	if (bnx->hotplugpass && bnx->hotplug_detected)
+		return true;
+	return false;
+}
+
 static void
 send_physnic (void *handle, unsigned int num_packets, void **packets,
 	      unsigned int *packet_sizes, bool print_ok)
@@ -797,6 +943,8 @@ send_physnic (void *handle, unsigned int num_packets, void **packets,
 	struct bnx *bnx = handle;
 	unsigned int i;
 
+	if (bnx_hotplugpass (bnx))
+		return;
 	for (i = 0; i < num_packets; i++)
 		bnx_xmit (bnx, packets[i], packet_sizes[i]);
 }
@@ -815,6 +963,8 @@ poll_physnic (void *handle)
 {
 	struct bnx *bnx = handle;
 
+	if (bnx_hotplugpass (bnx))
+		return;
 	bnx_handle_status (bnx);
 }
 
@@ -830,6 +980,8 @@ bnx_intr_clear (void *param)
 {
 	struct bnx *bnx = param;
 
+	if (bnx_hotplugpass (bnx))
+		return;
 	spinlock_lock (&bnx->reg_lock);
 	bnx_mmiowrite32 (bnx, 0x0204, 0);
 	spinlock_unlock (&bnx->reg_lock);
@@ -848,6 +1000,8 @@ bnx_intr_disable (void *param)
 	struct bnx *bnx = param;
 	u32 data;
 
+	if (bnx_hotplugpass (bnx))
+		return;
 	spinlock_lock (&bnx->reg_lock);
 	bnx_mmioread32 (bnx, 0x68, &data);
 	if (!(data & 2)) {
@@ -872,6 +1026,8 @@ bnx_intr_enable (void *param)
 	struct bnx *bnx = param;
 	u32 data;
 
+	if (bnx_hotplugpass (bnx))
+		return;
 	spinlock_lock (&bnx->reg_lock);
 	bnx_mmioread32 (bnx, 0x68, &data);
 	if (data & 2) {
@@ -897,16 +1053,13 @@ passcap_without_msi (struct bnx *bnx, struct pci_device *pci)
 {
 	u32 val;
 	u8 cap, cur;
-	pci_config_address_t addr;
 
-	addr = pci->address;
-	addr.reg_no = 0x34 >> 2; /* CAP - Capabilities Pointer */
-	cap = pci_read_config_data8 (addr, 0);
+	pci_config_read (pci, &cap, sizeof cap,
+			 0x34);	/* CAP - Capabilities Pointer */
 	cur = 0x34;
 	bnx->config_override[cur] = cap;
 	while (cap >= 0x40) {
-		addr.reg_no = cap >> 2;
-		val = pci_read_config_data32 (addr, 0);
+		pci_config_read (pci, &val, sizeof val, cap & ~3);
 		switch (val & 0xFF) { /* Cap ID */
 		case 0x05:	/* MSI */
 			printi ("[%02x:%02x.%01x] Capabilities [%02x] MSI\n",
@@ -934,6 +1087,48 @@ passcap_without_msi (struct bnx *bnx, struct pci_device *pci)
 }
 
 static void
+bnx_bridge_pre_config_write (struct pci_device *dev,
+			     struct pci_device *bridge,
+			     u8 iosize, u16 offset, union mem *data)
+{
+	struct bnx *bnx = dev->host;
+
+	if (bnx_hotplugpass (bnx))
+		return;
+	if (offset < 0x34) {
+		spinlock_lock (&bnx->ok_lock);
+		bnx->bridge_changing = true;
+		spinlock_unlock (&bnx->ok_lock);
+	}
+}
+
+static void
+bnx_bridge_post_config_write (struct pci_device *dev,
+			      struct pci_device *bridge,
+			      u8 iosize, u16 offset, union mem *data)
+{
+	struct bnx *bnx = dev->host;
+
+	if (bnx_hotplugpass (bnx))
+		return;
+	if (offset < 0x34) {
+		spinlock_lock (&bnx->ok_lock);
+		bnx->bridge_changing = false;
+		spinlock_unlock (&bnx->ok_lock);
+	}
+}
+
+static u8
+bnx_bridge_force_command (struct pci_device *dev, struct pci_device *bridge)
+{
+	struct bnx *bnx = dev->host;
+
+	if (bnx_hotplugpass (bnx))
+		return 0;
+	return PCI_CONFIG_COMMAND_BUSMASTER | PCI_CONFIG_COMMAND_MEMENABLE;
+}
+
+static void
 bnx_new (struct pci_device *pci_device)
 {
 	struct bnx *bnx;
@@ -941,6 +1136,7 @@ bnx_new (struct pci_device *pci_device)
 	bool option_tty = false;
 	bool option_virtio = false;
 	bool option_multifunction = false;
+	bool option_hotplugpass = false;
 	struct nicfunc *virtio_net_func;
 
 	printi ("[%02x:%02x.%01x] A Broadcom NetXtreme GbE found.\n",
@@ -953,6 +1149,17 @@ bnx_new (struct pci_device *pci_device)
 	if (pci_device->driver_options[3] &&
 	    pci_driver_option_get_bool (pci_device->driver_options[3], NULL))
 		option_multifunction = true;
+	if (pci_device->driver_options[4] &&
+	    pci_driver_option_get_bool (pci_device->driver_options[4], NULL))
+		option_hotplugpass = true;
+	if (option_hotplugpass && bnx_hotplug) {
+		printi ("[%02x:%02x.%01x] Passthrough\n",
+			pci_device->address.bus_no,
+			pci_device->address.device_no,
+			pci_device->address.func_no);
+		pci_device->host = NULL;
+		return;
+	}
 
 	bnx = alloc (sizeof *bnx);
 	if (!bnx) {
@@ -960,6 +1167,7 @@ bnx_new (struct pci_device *pci_device)
 		return;
 	}
 	memset (bnx, 0, sizeof *bnx);
+	bnx->hotplugpass = option_hotplugpass;
 	if (pci_device->driver_options[0] &&
 	    pci_driver_option_get_bool (pci_device->driver_options[0], NULL))
 		option_tty = true;
@@ -977,8 +1185,13 @@ bnx_new (struct pci_device *pci_device)
 		passcap_without_msi (bnx, pci_device);
 	}
 	if (bnx->virtio_net) {
+		static struct pci_bridge_callback bridge_callback = {
+			.pre_config_write = bnx_bridge_pre_config_write,
+			.post_config_write = bnx_bridge_post_config_write,
+			.force_command = bnx_bridge_force_command,
+		};
 		pci_set_bridge_io (pci_device);
-		pci_set_bridge_fake_command (pci_device, 4, 4);
+		pci_set_bridge_callback (pci_device, &bridge_callback);
 		net_init (bnx->nethandle, bnx, &phys_func, bnx->virtio_net,
 			  virtio_net_func);
 	} else if (!net_init (bnx->nethandle, bnx, &phys_func, NULL, NULL)) {
@@ -989,6 +1202,7 @@ bnx_new (struct pci_device *pci_device)
 	spinlock_init (&bnx->rx_lock);
 	spinlock_init (&bnx->status_lock);
 	spinlock_init (&bnx->reg_lock);
+	spinlock_init (&bnx->ok_lock);
 	bnx_pci_init (bnx);
 	bnx_mmio_init (bnx);
 	bnx_ring_alloc (bnx);
@@ -999,6 +1213,39 @@ bnx_new (struct pci_device *pci_device)
 	net_start (bnx->nethandle);
 }
 
+static void
+bnx_virtio_config_read (struct pci_device *pci_device, u8 iosize,
+			u16 offset, union mem *buf, struct bnx *bnx)
+{
+	int copy_from, copy_to, copy_len;
+
+	pci_handle_default_config_read (pci_device, iosize, offset, buf);
+	virtio_net_config_read (bnx->virtio_net, iosize, offset, buf);
+	/* The BAR4 in the VM is equal to the BAR0 in the host
+	   machine.  Because it is out of virtio specification, its
+	   memory space is not accessed by the guest OS.  However the
+	   address of the memory space is configured by the guest OS.
+	   This is required because normally a Broadcom network device
+	   in Mac is connected to under a PCIe bridge whose address
+	   space is configured by the guest OS. */
+	if (offset + iosize <= 0x20 || offset >= 0x28)
+		return;
+	copy_from = 0x10;
+	copy_to = 0x20 - offset;
+	copy_len = iosize;
+	if (copy_to >= 0) {
+		copy_len -= copy_to;
+	} else {
+		copy_from -= copy_to;
+		copy_to = 0;
+	}
+	if (offset + copy_len >= 0x28)
+		copy_len = 0x28 - offset;
+	if (copy_len > 0)
+		memcpy (&buf->byte + copy_to, pci_device->config_space.regs8 +
+			copy_from, copy_len);
+}
+
 static int
 bnx_config_read (struct pci_device *pci_device, u8 iosize,
 		 u16 offset, union mem *buf)
@@ -1007,21 +1254,10 @@ bnx_config_read (struct pci_device *pci_device, u8 iosize,
 	unsigned int i;
 	u8 override;
 
+	if (bnx_hotplugpass (bnx))
+		return CORE_IO_RET_DEFAULT;
 	if (bnx->virtio_net) {
-		pci_handle_default_config_read (pci_device, iosize, offset,
-						buf);
-		virtio_net_config_read (bnx->virtio_net, iosize, offset, buf);
-		/* The BAR4 in the VM is equal to the BAR0 in the host
-		   machine.  Because it is out of virtio
-		   specification, its memory space is not accessed by
-		   the guest OS.  However the address of the memory
-		   space is configured by the guest OS.  This is
-		   required because normally a Broadcom network device
-		   in Mac is connected to under a PCIe bridge whose
-		   address space is configured by the guest OS. */
-		if (offset == 0x20 || offset == 0x24)
-			pci_handle_default_config_read (pci_device, iosize,
-							offset - 0x10, buf);
+		bnx_virtio_config_read (pci_device, iosize, offset, buf, bnx);
 	} else {
 		memset (buf, 0, iosize);
 	}
@@ -1035,45 +1271,117 @@ bnx_config_read (struct pci_device *pci_device, u8 iosize,
 	return CORE_IO_RET_DONE;
 }
 
+static void
+bnx_update_bar (struct bnx *bnx, phys_t base)
+{
+	u32 bar0, bar1;
+
+	bar0 = base;
+	bar1 = base >> 32;
+	spinlock_lock (&bnx->reg_lock);
+	bnx->base = base;
+	pci_config_write (bnx->pci, &bar0, sizeof bar0,
+			  PCI_CONFIG_BASE_ADDRESS0);
+	pci_config_write (bnx->pci, &bar1, sizeof bar1,
+			  PCI_CONFIG_BASE_ADDRESS1);
+	spinlock_unlock (&bnx->reg_lock);
+}
+
+static void
+bnx_virtio_config_write (struct pci_device *pci_device, u8 iosize,
+			 u16 offset, union mem *buf, struct bnx *bnx)
+{
+	struct pci_bar_info bar_info;
+
+	virtio_net_config_write (bnx->virtio_net, iosize, offset, buf);
+	/* Detect change of BAR4 and BAR5.  When 64bit address is
+	   assigned, the base address may be changed two times.  If
+	   so, the base address might point to RAM temporarily.  To
+	   avoid RAM corruption by this driver, apply the address when
+	   BAR5 is written. */
+	if (offset + iosize <= 0x20 || offset >= 0x28)
+		return;
+	if (!(offset == 0x20 || offset == 0x24) || iosize != 4)
+		panic ("%s: invalid offset 0x%X iosize %u",
+		       __func__, offset, iosize);
+	bar_info.type = PCI_BAR_INFO_TYPE_NONE;
+	pci_get_modifying_bar_info (pci_device, &bar_info, iosize,
+				    offset - 0x10, buf);
+	if (bar_info.type == PCI_BAR_INFO_TYPE_MEM && offset == 0x24 &&
+	    bnx->base != bar_info.base) {
+		printf ("bnx: base address changed from 0x%08llX to %08llX\n",
+			bnx->base, bar_info.base);
+		bnx_update_bar (bnx, bar_info.base);
+	}
+	if (offset == 0x20)
+		pci_device->config_space.base_address[0] =
+			(pci_device->config_space.base_address[0] &
+			 0xFFFF) | (buf->dword & 0xFFFF0000);
+	else
+		pci_device->config_space.base_address[1] = buf->dword;
+}
+
 static int
 bnx_config_write (struct pci_device *pci_device, u8 iosize,
 		  u16 offset, union mem *buf)
 {
 	struct bnx *bnx = pci_device->host;
 
-	if (bnx->virtio_net) {
-		virtio_net_config_write (bnx->virtio_net, iosize, offset, buf);
-		if (offset == 0x20 || offset == 0x24) {
-			struct pci_bar_info bar_info;
-
-			/* Detect change of BAR4 and BAR5.  When 64bit
-			   address is assigned, the base address may
-			   be changed two times.  If so, the base
-			   address might point to RAM temporarily.  To
-			   avoid RAM corruption by this driver, apply
-			   the address when BAR5 is written.  */
-			bar_info.type = PCI_BAR_INFO_TYPE_NONE;
-			pci_get_modifying_bar_info (pci_device, &bar_info,
-						    iosize, offset - 0x10,
-						    buf);
-			if (bar_info.type == PCI_BAR_INFO_TYPE_MEM &&
-			    offset == 0x24 && bnx->base != bar_info.base) {
-				printf ("bnx: base address changed from"
-					" 0x%08llX to %08llX\n",
-					bnx->base, bar_info.base);
-				bnx->base = bar_info.base;
-			}
-			pci_handle_default_config_write (pci_device, iosize,
-							 offset - 0x10, buf);
-		}
-	}
+	if (bnx_hotplugpass (bnx))
+		return CORE_IO_RET_DEFAULT;
+	if (bnx->virtio_net)
+		bnx_virtio_config_write (pci_device, iosize, offset, buf, bnx);
 	return CORE_IO_RET_DONE;
+}
+
+static void
+bnx_disconnect (struct pci_device *pci_device)
+{
+	struct bnx *bnx = pci_device->host;
+	u32 cmd;
+
+	if (bnx_hotplugpass (bnx))
+		return;
+	spinlock_lock (&bnx->ok_lock);
+	bnx->disconnected = true;
+	spinlock_unlock (&bnx->ok_lock);
+	pci_config_read (pci_device, &cmd, sizeof cmd, PCI_CONFIG_COMMAND);
+	cmd &= ~(PCI_CONFIG_COMMAND_MEMENABLE | PCI_CONFIG_COMMAND_BUSMASTER);
+	pci_config_write (pci_device, &cmd, sizeof cmd, PCI_CONFIG_COMMAND);
+}
+
+static void
+bnx_reconnect (struct pci_device *pci_device)
+{
+	struct bnx *bnx = pci_device->host;
+	u32 cmd;
+
+	if (bnx_hotplugpass (bnx))
+		return;
+	if (bnx_hotplugpass_test (bnx)) {
+		printi ("[%02x:%02x.%01x] Passthrough\n",
+			pci_device->address.bus_no,
+			pci_device->address.device_no,
+			pci_device->address.func_no);
+		if (bnx->virtio_net)
+			virtio_net_unregister_handler (bnx->virtio_net);
+		return;
+	}
+	/* Rewriting BARs here seems to be required to make the
+	 * Thunderbolt to Gigabit Ethernet Adapter work... */
+	bnx_update_bar (bnx, bnx->base);
+	pci_config_read (pci_device, &cmd, sizeof cmd, PCI_CONFIG_COMMAND);
+	cmd |= PCI_CONFIG_COMMAND_MEMENABLE | PCI_CONFIG_COMMAND_BUSMASTER;
+	pci_config_write (pci_device, &cmd, sizeof cmd, PCI_CONFIG_COMMAND);
+	spinlock_lock (&bnx->ok_lock);
+	bnx->disconnected = false;
+	spinlock_unlock (&bnx->ok_lock);
 }
 
 static struct pci_driver bnx_driver = {
 	.name		= driver_name,
 	.longname	= driver_longname,
-	.driver_options	= "tty,net,virtio,multifunction",
+	.driver_options	= "tty,net,virtio,multifunction,hotplugpass",
 	.device		= "class_code=020000,id="
 			  "14e4:165a|" /* BCM5722 */
 			  "14e4:1682|" /* Thunderbolt - BCM57762 */
@@ -1084,6 +1392,8 @@ static struct pci_driver bnx_driver = {
 	.new		= bnx_new,
 	.config_read	= bnx_config_read,
 	.config_write	= bnx_config_write,
+	.disconnect	= bnx_disconnect,
+	.reconnect	= bnx_reconnect,
 };
 
 static void
@@ -1092,4 +1402,11 @@ bnx_init (void)
 	pci_register_driver (&bnx_driver);
 }
 
+static void
+bnx_set_hotplug (void)
+{
+	bnx_hotplug = true;
+}
+
 PCI_DRIVER_INIT (bnx_init);
+INITFUNC ("config10", bnx_set_hotplug);

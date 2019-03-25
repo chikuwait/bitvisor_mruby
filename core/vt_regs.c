@@ -28,6 +28,7 @@
  */
 
 #include "asm.h"
+#include "config.h"
 #include "constants.h"
 #include "current.h"
 #include "entry.h"
@@ -39,6 +40,7 @@
 #include "vt_msr.h"
 #include "vt_paging.h"
 #include "vt_regs.h"
+#include "vt_shadow_vt.h"
 
 #define REALMODE_IDTR_BASE	0
 #define REALMODE_IDTR_LIMIT	0
@@ -182,6 +184,12 @@ vt_read_control_reg (enum control_reg reg, ulong *val)
 		break;
 	case CONTROL_REG_CR4:
 		*val = vt_read_cr4 ();
+		if (!current->u.vt.vmxe) {
+			*val &= ~CR4_VMXE_BIT;
+		} else {
+			/* Do nothing because physical VMXE bit is
+			 * always set */
+		}
 		break;
 	default:
 		panic ("Fatal error: unknown control register.");
@@ -347,7 +355,6 @@ pe_change (bool pe)
 	/* enable emulation */
 	pe_change_enable_sw (pe);
 
-	current->u.vt.exint_re_pending = false;
 	current->u.vt.exint_update = true;
 }
 
@@ -384,6 +391,8 @@ vt_write_control_reg (enum control_reg reg, ulong val)
 		asm_vmwrite (VMCS_GUEST_CR4, vt_paging_apply_fixed_cr4 (val));
 		vt_paging_updatecr3 ();
 		vt_paging_flush_guest_tlb ();
+		if (config.vmm.unsafe_nested_virtualization)
+			current->u.vt.vmxe = !!(val & CR4_VMXE_BIT);
 		break;
 	default:
 		panic ("Fatal error: unknown control register.");
@@ -446,28 +455,37 @@ vt_read_sreg_sel (enum sreg s, u16 *val)
 void
 vt_read_sreg_acr (enum sreg s, ulong *val)
 {
+	ulong ret, tmp;
+
 	switch (s) {
 	case SREG_ES:
-		asm_vmread (VMCS_GUEST_ES_ACCESS_RIGHTS, val);
+		asm_vmread (VMCS_GUEST_ES_ACCESS_RIGHTS, &ret);
 		break;
 	case SREG_CS:
-		asm_vmread (VMCS_GUEST_CS_ACCESS_RIGHTS, val);
+		asm_vmread (VMCS_GUEST_CS_ACCESS_RIGHTS, &ret);
 		break;
 	case SREG_SS:
-		asm_vmread (VMCS_GUEST_SS_ACCESS_RIGHTS, val);
+		asm_vmread (VMCS_GUEST_SS_ACCESS_RIGHTS, &ret);
 		break;
 	case SREG_DS:
-		asm_vmread (VMCS_GUEST_DS_ACCESS_RIGHTS, val);
+		asm_vmread (VMCS_GUEST_DS_ACCESS_RIGHTS, &ret);
 		break;
 	case SREG_FS:
-		asm_vmread (VMCS_GUEST_FS_ACCESS_RIGHTS, val);
+		asm_vmread (VMCS_GUEST_FS_ACCESS_RIGHTS, &ret);
 		break;
 	case SREG_GS:
-		asm_vmread (VMCS_GUEST_GS_ACCESS_RIGHTS, val);
+		asm_vmread (VMCS_GUEST_GS_ACCESS_RIGHTS, &ret);
 		break;
 	default:
 		panic ("Fatal error: unknown sreg.");
 	}
+	if ((ret & ACCESS_RIGHTS_UNUSABLE_BIT) && s != SREG_CS &&
+	    current->u.vt.lma) {
+		vt_read_sreg_acr (SREG_CS, &tmp);
+		if (tmp & ACCESS_RIGHTS_L_BIT)
+			ret = 0xC0F3;
+	}
+	*val = ret;
 }
 
 void
@@ -780,6 +798,8 @@ vt_writing_sreg (enum sreg s)
 void
 vt_reset (void)
 {
+	ulong proc_based_vmexec_ctl;
+
 	asm_vmwrite (VMCS_CR0_READ_SHADOW, CR0_ET_BIT);
 	asm_vmwrite (VMCS_GUEST_CR0, vt_paging_apply_fixed_cr0 (CR0_ET_BIT));
 	current->u.vt.vr.cr2 = 0;
@@ -793,12 +813,18 @@ vt_reset (void)
 	asm_vmwrite (VMCS_GUEST_DS_SEL, 0);
 	asm_vmwrite (VMCS_GUEST_FS_SEL, 0);
 	asm_vmwrite (VMCS_GUEST_GS_SEL, 0);
+	asm_vmwrite (VMCS_GUEST_LDTR_SEL, 0);
+	asm_vmwrite (VMCS_GUEST_TR_SEL, 0);
 	asm_vmwrite (VMCS_GUEST_ES_BASE, 0);
 	asm_vmwrite (VMCS_GUEST_CS_BASE, 0);
 	asm_vmwrite (VMCS_GUEST_SS_BASE, 0);
 	asm_vmwrite (VMCS_GUEST_DS_BASE, 0);
 	asm_vmwrite (VMCS_GUEST_FS_BASE, 0);
 	asm_vmwrite (VMCS_GUEST_GS_BASE, 0);
+	asm_vmwrite (VMCS_GUEST_LDTR_BASE, 0);
+	asm_vmwrite (VMCS_GUEST_TR_BASE, 0);
+	asm_vmwrite (VMCS_GUEST_GDTR_BASE, 0);
+	asm_vmwrite (VMCS_GUEST_IDTR_BASE, 0);
 	if (current->u.vt.unrestricted_guest) {
 		asm_vmwrite (VMCS_GUEST_ES_ACCESS_RIGHTS, 0x93);
 		asm_vmwrite (VMCS_GUEST_CS_ACCESS_RIGHTS, 0x93);
@@ -814,19 +840,20 @@ vt_reset (void)
 		asm_vmwrite (VMCS_GUEST_FS_ACCESS_RIGHTS, 0xF3);
 		asm_vmwrite (VMCS_GUEST_GS_ACCESS_RIGHTS, 0xF3);
 	}
+	asm_vmwrite (VMCS_GUEST_LDTR_ACCESS_RIGHTS, 0x82);
+	asm_vmwrite (VMCS_GUEST_TR_ACCESS_RIGHTS, 0x8B);
 	asm_vmwrite (VMCS_GUEST_ES_LIMIT, 0xFFFF);
 	asm_vmwrite (VMCS_GUEST_CS_LIMIT, 0xFFFF);
 	asm_vmwrite (VMCS_GUEST_SS_LIMIT, 0xFFFF);
 	asm_vmwrite (VMCS_GUEST_DS_LIMIT, 0xFFFF);
 	asm_vmwrite (VMCS_GUEST_FS_LIMIT, 0xFFFF);
 	asm_vmwrite (VMCS_GUEST_GS_LIMIT, 0xFFFF);
+	asm_vmwrite (VMCS_GUEST_LDTR_LIMIT, 0xFFFF);
+	asm_vmwrite (VMCS_GUEST_TR_LIMIT, 0xFFFF);
+	asm_vmwrite (VMCS_GUEST_GDTR_LIMIT, 0xFFFF);
+	asm_vmwrite (VMCS_GUEST_IDTR_LIMIT, 0xFFFF);
 	if (current->u.vt.unrestricted_guest) {
 		asm_vmwrite (VMCS_GUEST_RFLAGS, RFLAGS_ALWAYS1_BIT);
-		asm_vmwrite (VMCS_GUEST_IDTR_BASE, 0);
-		asm_vmwrite (VMCS_GUEST_IDTR_LIMIT, 0xFFFF);
-		asm_vmwrite (VMCS_GUEST_TR_LIMIT, 0xFFFF);
-		asm_vmwrite (VMCS_GUEST_TR_ACCESS_RIGHTS, 0x8B);
-		asm_vmwrite (VMCS_GUEST_TR_BASE, 0);
 		current->u.vt.vr.re = 0;
 	} else {
 		asm_vmwrite (VMCS_GUEST_RFLAGS, RFLAGS_ALWAYS1_BIT |
@@ -849,10 +876,19 @@ vt_reset (void)
 	current->u.vt.realmode.tr_base = 0;
 	current->u.vt.realmode.idtr.base = 0;
 	current->u.vt.realmode.idtr.limit = 0xFFFF;
-	current->u.vt.exint_re_pending = false;
 	current->u.vt.exint_update = true;
 	vt_msr_update_lma ();
 	vt_paging_updatecr3 ();
 	vt_paging_flush_guest_tlb ();
 	vt_update_exception_bmp ();
+	asm_vmwrite (VMCS_GUEST_INTERRUPTIBILITY_STATE, 0);
+	asm_vmwrite (VMCS_GUEST_ACTIVITY_STATE,
+		     VMCS_GUEST_ACTIVITY_STATE_ACTIVE);
+	asm_vmread (VMCS_PROC_BASED_VMEXEC_CTL, &proc_based_vmexec_ctl);
+	proc_based_vmexec_ctl &= ~VMCS_PROC_BASED_VMEXEC_CTL_NMIWINEXIT_BIT;
+	asm_vmwrite (VMCS_PROC_BASED_VMEXEC_CTL, proc_based_vmexec_ctl);
+	asm_vmwrite (VMCS_GUEST_DR7, 0x400);
+	asm_vmwrite64 (VMCS_GUEST_IA32_DEBUGCTL, 0);
+	current->u.vt.vmxe = false;
+	vt_shadow_vt_reset ();
 }

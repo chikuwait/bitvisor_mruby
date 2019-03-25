@@ -35,6 +35,7 @@
 #include "entry.h"
 #include "mm.h"
 #include "uefi.h"
+#include <share/uefi_boot.h>
 
 #define SECTION_ENTRY_TEXT __attribute__ ((section (".entry.text")))
 #define SECTION_ENTRY_DATA __attribute__ ((section (".entry.data")))
@@ -43,6 +44,10 @@
 		(s); \
 	_print (_p); \
 } while (0)
+
+static struct uuid SECTION_ENTRY_DATA boot_opt_uuid = UEFI_BITVISOR_BOOT_UUID;
+static struct uuid SECTION_ENTRY_DATA disconnect_controller_opt_uuid =
+	UEFI_BITVISOR_DISCONNECT_CONTROLLER_UUID;
 
 static EFI_GUID SECTION_ENTRY_DATA acpi_20_table_guid = {
 	0x8868E871, 0xE4F1, 0x11D3,
@@ -70,6 +75,10 @@ ulong SECTION_ENTRY_DATA uefi_open_protocol;
 ulong SECTION_ENTRY_DATA uefi_close_protocol;
 ulong SECTION_ENTRY_DATA uefi_image_handle;
 ulong SECTION_ENTRY_DATA uefi_disconnect_controller;
+ulong SECTION_ENTRY_DATA uefi_boot_param_ext_addr;
+ulong SECTION_ENTRY_DATA uefi_protocols_per_handle;
+ulong SECTION_ENTRY_DATA uefi_uninstall_protocol_interface;
+ulong SECTION_ENTRY_DATA uefi_create_event;
 bool uefi_booted;
 
 static void SECTION_ENTRY_TEXT
@@ -140,11 +149,35 @@ read_configuration_table (EFI_SYSTEM_TABLE *systab)
 	}
 }
 
+static u64 SECTION_ENTRY_TEXT
+boot_param_get_phys (struct uuid *boot_uuid)
+{
+	u64 opt_addr;
+	struct uuid opt_uuid;
+	u64 *opt_table_phys = (u64 *)uefi_boot_param_ext_addr;
+	uint i;
+
+	for (i = 0; i < MAX_N_PARAM_EXTS; i++) {
+		uefi_entry_pcpy (uefi_entry_virttophys (&opt_addr),
+				 &opt_table_phys[i], sizeof (opt_addr));
+		if (!opt_addr)
+			break;
+		uefi_entry_pcpy (uefi_entry_virttophys (&opt_uuid),
+				 (void *)(ulong)opt_addr,
+				 sizeof (opt_uuid));
+		if (!uefi_guid_cmp ((EFI_GUID *)&opt_uuid,
+				    (EFI_GUID *)boot_uuid))
+			return opt_addr;
+	}
+	return 0x0;
+}
+
 int SECTION_ENTRY_TEXT
-uefi_init (u32 loadaddr, u32 loadsize, EFI_SYSTEM_TABLE *systab,
-	   EFI_HANDLE image, EFI_FILE_HANDLE file)
+uefi_init (EFI_HANDLE image, EFI_SYSTEM_TABLE *systab, void **boot_options)
 {
 	EFI_BOOT_SERVICES *uefi_boot_services;
+	EFI_FILE_HANDLE file;
+	u64 loadaddr, loadsize;
 	u64 uefi_read;
 	u64 alloc_addr64, readsize;
 	ulong alloc_addr;
@@ -153,7 +186,12 @@ uefi_init (u32 loadaddr, u32 loadsize, EFI_SYSTEM_TABLE *systab,
 	extern u8 dataend[];
 	EFI_SIMPLE_TEXT_IN_PROTOCOL *conin;
 	EFI_SIMPLE_TEXT_OUT_PROTOCOL *conout;
+	struct bitvisor_boot bitvisor_opt;
+	u64 boot_opt_addr;
+	struct bitvisor_disconnect_controller disconnect_controller_opt;
+	u64 disconnect_controller_opt_addr;
 
+	uefi_boot_param_ext_addr = (ulong)boot_options;
 	uefi_image_handle = (ulong)image;
 	uefi_entry_pcpy (uefi_entry_virttophys (&uefi_conin),
 			 &systab->ConIn, sizeof uefi_conin);
@@ -181,8 +219,6 @@ uefi_init (u32 loadaddr, u32 loadsize, EFI_SYSTEM_TABLE *systab,
 	uefi_entry_pcpy (uefi_entry_virttophys (&uefi_get_memory_map),
 			 &uefi_boot_services->GetMemoryMap,
 			 sizeof uefi_get_memory_map);
-	uefi_entry_pcpy (uefi_entry_virttophys (&uefi_read),
-			 &file->Read, sizeof uefi_read);
 	uefi_entry_pcpy (uefi_entry_virttophys (&uefi_locate_handle_buffer),
 			 &uefi_boot_services->LocateHandleBuffer,
 			 sizeof uefi_locate_handle_buffer);
@@ -197,7 +233,48 @@ uefi_init (u32 loadaddr, u32 loadsize, EFI_SYSTEM_TABLE *systab,
 	uefi_entry_pcpy (uefi_entry_virttophys (&uefi_disconnect_controller),
 			 &uefi_boot_services->DisconnectController,
 			 sizeof uefi_disconnect_controller);
+	uefi_entry_pcpy (uefi_entry_virttophys (&uefi_protocols_per_handle),
+			 &uefi_boot_services->ProtocolsPerHandle,
+			 sizeof uefi_protocols_per_handle);
+	uefi_entry_pcpy (uefi_entry_virttophys
+			 (&uefi_uninstall_protocol_interface),
+			 &uefi_boot_services->UninstallProtocolInterface,
+			 sizeof uefi_uninstall_protocol_interface);
+	uefi_entry_pcpy (uefi_entry_virttophys (&uefi_create_event),
+			 &uefi_boot_services->CreateEvent,
+			 sizeof uefi_create_event);
 	read_configuration_table (systab);
+
+	if (!boot_options) {
+		_PRINT ("Fatal: Boot options not found\n");
+		return 0;
+	}
+	boot_opt_addr = boot_param_get_phys (&boot_opt_uuid);
+	if (boot_opt_addr == 0x0) {
+		_PRINT ("Fatal: Cannot find boot handler\n");
+		return 0;
+	}
+	uefi_entry_pcpy (uefi_entry_virttophys (&bitvisor_opt),
+			 (void *)(ulong)boot_opt_addr,
+			 sizeof (bitvisor_opt));
+	disconnect_controller_opt_addr =
+		boot_param_get_phys (&disconnect_controller_opt_uuid);
+	if (disconnect_controller_opt_addr) {
+		uefi_entry_pcpy (uefi_entry_virttophys
+				 (&disconnect_controller_opt),
+				 (void *)(ulong)disconnect_controller_opt_addr,
+				 sizeof disconnect_controller_opt);
+		uefi_disconnect_controller = (ulong)
+			disconnect_controller_opt.disconnect_controller;
+	}
+
+	loadaddr = bitvisor_opt.loadaddr;
+	loadsize = bitvisor_opt.loadsize;
+	file = bitvisor_opt.file;
+
+	uefi_entry_pcpy (uefi_entry_virttophys (&uefi_read),
+			 &file->Read, sizeof uefi_read);
+
 	uefi_init_get_vmmsize (&vmmsize, &align);
 	vmmsize = (vmmsize + PAGESIZE - 1) & ~PAGESIZE_MASK;
 	alloc_addr64 = 0xFFFFFFFF;

@@ -32,12 +32,8 @@
 #include <string.h>
 #include <stdlib.h>
 
-typedef unsigned char		u8;
-typedef unsigned short int	u16;
-typedef unsigned int		u32;
-typedef unsigned long long int	u64;
-#define __CORE_TYPES_H
-#include "core/config.h"
+#include <vmm_types.h>
+#include <config.h>
 
 #include "configparser.h"
 
@@ -156,6 +152,8 @@ storage_conf_type (char **name, void **val, int *len)
 		t = STORAGE_TYPE_AHCI;
 	else if (strcasecmp (*val, "AHCI_ATAPI") == 0)
 		t = STORAGE_TYPE_AHCI_ATAPI;
+	else if (strcasecmp (*val, "NVME") == 0)
+		t = STORAGE_TYPE_NVME;
 	else if (strcasecmp (*val, "ANY") == 0)
 		t = STORAGE_TYPE_ANY;
 	else {
@@ -421,6 +419,8 @@ setconfig (char *name, char *value, struct config_data *cfg)
 	    "vmm.panic_reboot");
 	ss (uintnum, &name, &src, &len, "vmm.shell", "vmm.shell");
 	ss (uintnum, &name, &src, &len, "vmm.dbgsh", "vmm.dbgsh");
+	ss (uintnum, &name, &src, &len, "vmm.telnet_dbgsh",
+	    "vmm.telnet_dbgsh");
 	ss (uintnum, &name, &src, &len, "vmm.status", "vmm.status");
 	ss (uintnum, &name, &src, &len, "vmm.boot_active", "vmm.boot_active");
 	ss (uintnum, &name, &src, &len, "vmm.no_intr_intercept",
@@ -591,6 +591,7 @@ setconfig (char *name, char *value, struct config_data *cfg)
 	CONF (vmm.panic_reboot);
 	CONF (vmm.shell);
 	CONF (vmm.dbgsh);
+	CONF (vmm.telnet_dbgsh);
 	CONF (vmm.status);
 	CONF (vmm.boot_active);
 	CONF (vmm.no_intr_intercept);
