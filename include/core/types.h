@@ -30,23 +30,11 @@
 #ifndef __CORE_TYPES_H
 #define __CORE_TYPES_H
 
+#include <share/vmm_types.h>
+
 #define NULL			((void *)0)
 
-typedef signed char		i8;
-typedef signed short int	i16;
-typedef signed int		i32;
-typedef signed long long int	i64;
-typedef unsigned char		u8;
-typedef unsigned short int	u16;
-typedef unsigned int		u32;
-typedef unsigned long long int	u64;
-typedef unsigned int		uint;
-typedef unsigned long int	ulong;
 typedef unsigned long int	size_t;
-typedef unsigned long int	addr_t;
-typedef unsigned long int	virt_t;
-typedef unsigned int		phys32_t;
-typedef unsigned long long int	phys_t;
 typedef enum {
 	false = 0,
 	true = 1,

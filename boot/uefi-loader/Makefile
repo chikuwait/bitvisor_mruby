@@ -1,3 +1,6 @@
+INC_SHARE_DIR = ../../include/share
+INC = $(INC_SHARE_DIR)/vmm_types.h $(INC_SHARE_DIR)/uefi_boot.h
+
 MINGW1=$(shell which amd64-mingw32msvc-cc 2> /dev/null)
 MINGW2=$(shell which x86_64-w64-mingw32-gcc 2> /dev/null)
 ifneq ("$(MINGW1)","")
@@ -15,20 +18,18 @@ all : loadvmm.efi
 
 .PHONY : clean
 clean :
-	$(RM) loadvmm.dll loadvmm.efi
+	$(RM) loadvmm.efi
 
-loadvmm.efi : loadvmm.dll
-	(dd bs=1 count=220 && echo && dd bs=1 count=1 of=/dev/null && cat) \
-		< loadvmm.dll > loadvmm.efi
-
-loadvmm.dll : loadvmm.c
+loadvmm.efi : loadvmm.c $(INC) discon.h
 	$(EXE_CC) -shared -nostdlib -e efi_main@8 \
 		-mno-red-zone -mno-sse -nostdinc -s -O \
 		-ffreestanding -fno-builtin -fno-stack-protector \
 		-fno-strict-aliasing \
+		-Wl,--subsystem,10 \
 		-I. \
+		-I$(INC_SHARE_DIR) \
 		-I$(EDK_DIR)/Foundation/Efi/Include/ \
 		-I$(EDK_DIR)/Foundation/Framework/Include/ \
 		-I$(EDK_DIR)/Foundation/Include/ \
 		-I$(EDK_DIR)/Foundation/Efi/ \
-		-o loadvmm.dll loadvmm.c
+		-o loadvmm.efi loadvmm.c

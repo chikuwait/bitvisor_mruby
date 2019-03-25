@@ -119,9 +119,15 @@ struct pci_config_space {
 #define PCI_CONFIG_COMMAND_MEMENABLE	0x2
 #define PCI_CONFIG_COMMAND_BUSMASTER	0x4
 
+#define PCI_CAP_RSVD	0x0
+#define PCI_CAP_MSI	0x5
+#define PCI_CAP_PCIEXP	0x10
+#define PCI_CAP_MSIX	0x11
+
 struct pci_config_mmio_data;
 struct token;
 struct pci_msi;
+struct pci_bridge_callback_list;
 
 // data structures
 struct pci_device {
@@ -140,9 +146,12 @@ struct pci_device {
 		int yes;
 		int initial_secondary_bus_no;
 		u8 secondary_bus_no, subordinate_bus_no;
+		spinlock_t callback_lock;
+		struct pci_bridge_callback_list *callback_list;
 	} bridge;
 	struct pci_device *parent_bridge;
 	int disconnect;
+	int hotplug;
 	u8 fake_command_mask, fake_command_fixed, fake_command_virtual;
 };
 
@@ -154,6 +163,8 @@ struct pci_driver {
 			    union mem *data);
 	int (*config_write) (struct pci_device *dev, u8 iosize, u16 offset,
 			     union mem *data);
+	void (*disconnect) (struct pci_device *dev);
+	void (*reconnect) (struct pci_device *dev);
 	struct {
 		unsigned int use_base_address_mask_emulation: 1;
 	} options;
@@ -173,6 +184,17 @@ struct pci_bar_info {
 	u32 len;
 };
 
+struct pci_bridge_callback {
+	void (*pre_config_write) (struct pci_device *dev,
+				  struct pci_device *bridge,
+				  u8 iosize, u16 offset, union mem *data);
+	void (*post_config_write) (struct pci_device *dev,
+				   struct pci_device *bridge,
+				   u8 iosize, u16 offset, union mem *data);
+	u8 (*force_command) (struct pci_device *dev,
+			     struct pci_device *bridge);
+};
+
 // exported functions
 extern void pci_register_driver (struct pci_driver *driver);
 extern void pci_register_intr_callback (int (*callback) (void *data, int num),
@@ -183,16 +205,6 @@ extern void pci_handle_default_config_read (struct pci_device *pci_device,
 extern void pci_handle_default_config_write (struct pci_device *pci_device,
 					     u8 iosize, u16 offset,
 					     union mem *data);
-extern u32  pci_read_config_data_port();
-extern void pci_write_config_data_port(u32 data);
-
-extern u8 pci_read_config_data8(pci_config_address_t addr, int offset);
-extern u16 pci_read_config_data16(pci_config_address_t addr, int offset);
-extern u32 pci_read_config_data32(pci_config_address_t addr, int offset);
-extern void pci_write_config_data8(pci_config_address_t addr, int offset, u8 data);
-extern void pci_write_config_data16(pci_config_address_t addr, int offset, u16 data);
-extern void pci_write_config_data32(pci_config_address_t addr, int offset, u32 data);
-
 struct pci_device *pci_possible_new_device (pci_config_address_t addr,
 					    struct pci_config_mmio_data *mmio);
 void pci_system_disconnect (struct pci_device *pci_device);
@@ -205,6 +217,17 @@ void pci_read_config_mmio (struct pci_config_mmio_data *p, uint bus_no,
 void pci_write_config_mmio (struct pci_config_mmio_data *p, uint bus_no,
 			    uint device_no, uint func_no, uint offset,
 			    uint iosize, void *data);
+void pci_readwrite_config_pmio (bool wr, uint bus_no, uint device_no,
+				uint func_no, uint offset, uint iosize,
+				void *data);
+void pci_read_config_pmio (uint bus_no, uint device_no, uint func_no,
+			   uint offset, uint iosize, void *data);
+void pci_write_config_pmio (uint bus_no, uint device_no, uint func_no,
+			    uint offset, uint iosize, void *data);
+void pci_config_read (struct pci_device *pci_device, void *data, uint iosize,
+		      uint offset);
+void pci_config_write (struct pci_device *pci_device, void *data, uint iosize,
+		       uint offset);
 void pci_get_bar_info (struct pci_device *pci_device, int n,
 		       struct pci_bar_info *bar_info);
 int pci_get_modifying_bar_info (struct pci_device *pci_device,
@@ -214,14 +237,15 @@ struct pci_driver *pci_find_driver_for_device (struct pci_device *device);
 struct pci_driver *pci_find_driver_by_token (struct token *name);
 int pci_driver_option_get_int (char *option, char **e, int base);
 bool pci_driver_option_get_bool (char *option, char **e);
+u8 pci_find_cap_offset (struct pci_device *pci_device, u8 cap_id);
 void pci_dump_pci_dev_list (void);
 struct pci_device *pci_get_bridge_from_bus_no (u8 bus_no);
 void pci_set_bridge_from_bus_no (u8 bus_no, struct pci_device *bridge);
 int pci_reconnect_device (struct pci_device *dev, pci_config_address_t addr,
 			  struct pci_config_mmio_data *mmio);
 void pci_set_bridge_io (struct pci_device *pci_device);
-void pci_set_bridge_fake_command (struct pci_device *pci_device, u8 mask,
-				  u8 fixed);
+void pci_set_bridge_callback (struct pci_device *pci_device,
+			      struct pci_bridge_callback *bridge_callback);
 struct pci_msi *pci_msi_init (struct pci_device *pci_device,
 			      int (*callback) (void *data, int num),
 			      void *data);

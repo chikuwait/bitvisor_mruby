@@ -26,23 +26,21 @@
  * ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
  * POSSIBILITY OF SUCH DAMAGE.
  */
-#include <mruby.h>
-#include <mruby/array.h>
+
 #include <core.h>
 #include <core/initfunc.h>
 #include <core/list.h>
 #include <core/mmio.h>
-#include <core/process.h>
 #include <net/netapi.h>
 #include "pci.h"
 #include "virtio_net.h"
 #include <mruby_process.h>
-
 typedef unsigned int UINT;
+
 static const char driver_name[] = "pro1000";
 static const char driver_longname[] = "Intel PRO/1000 driver";
-static int mrb_nicload = 0;
 static int mrb_driverp;
+
 #ifdef VTD_TRANS
 #include "passthrough/vtd.h"
 int add_remap() ;
@@ -308,6 +306,7 @@ write_mydesc (struct desc_shadow *s, struct data2 *d2, uint off2,
 			RDESC_SIZE;
 	}
 }
+
 static void
 send_physnic_sub (struct data2 *d2, UINT num_packets, void **packets,
 		  UINT *packet_sizes, bool print_ok)
@@ -328,7 +327,7 @@ send_physnic_sub (struct data2 *d2, UINT num_packets, void **packets,
 	tail = (void *)((u8 *)d2->d1[0].map + off2 + 0x18);
 	h = *head;
 	t = *tail;
-	if (h == 0xFFFFFFFF)
+	if (h >= NUM_OF_TDESC || t >= NUM_OF_TDESC)
 		return;
 	for (i = 0; i < num_packets; i++) {
 		nt = t + 1;
@@ -345,7 +344,6 @@ send_physnic_sub (struct data2 *d2, UINT num_packets, void **packets,
 			continue;
 		}
 		memcpy (s->u.t.tbuf[t], packets[i], packet_sizes[i]);
-
 		td = &s->u.t.td[t];
 		td->len = packet_sizes[i];
 		td->cso = 0;
@@ -366,7 +364,9 @@ send_physnic_sub (struct data2 *d2, UINT num_packets, void **packets,
 		td->special = 0;
 		t = nt;
 	}
-	*tail = t;
+	volatile u32 *status = (void *)(u8 *)d2->d1[0].map + 0x8;
+	if (*status & 0x2)	/* link up indication */
+		*tail = t;
 }
 
 static void
@@ -384,6 +384,7 @@ static void
 setrecv_physnic (void *handle, net_recv_callback_t *callback, void *param)
 {
 	struct data2 *d2 = handle;
+
 	d2->recvphys_func = callback;
 	d2->recvphys_param = param;
 }
@@ -666,7 +667,7 @@ tdesc_copytobuf (struct data2 *d2, phys_t *addr, uint *len)
 		i = *len;
 	q = mapmem_gphys (*addr, i, 0);
 	memcpy (d2->buf + d2->len, q, i);
-    mruby_set_pointer(mrb_driverp,(u8 *)q,10);
+	mruby_set_pointer(mrb_driverp,(u8 *)q,10);
     mruby_funcall(mrb_driverp,"readEthernetFreame",0);
 	d2->len += i;
 	unmapmem (q, i);
@@ -780,6 +781,7 @@ tse_set_next_header (struct data2 *d2)
 	if (d2->dext0_ip) {
 		*(u16 *)(void *)&iphdr[4] =
 			bswap16 (bswap16 (*(u16 *)(void *)&iphdr[4]) + 1);
+		
 	}
 	/* add TCP sequence number */
 	if (d2->dext0_tcp) {
@@ -924,17 +926,17 @@ process_tdesc (struct data2 *d2, struct tdesc *td)
 				);
 		if (td->cmd_rs)
 			td->sta_dd = 1;
-    } else if (td->addr && td->len) {
-        /*  Legacy Transmit Descriptor */
-        tdaddr = td->addr;
-        tdlen = td->len;
-        tdesc_copytobuf (d2, &tdaddr, &tdlen);
-        if (td->cmd_eop) {
-            if (!td->cmd_ifcs)
-                printf ("FIXME: IFCS=0\n");
-            if (td->cmd_ic)
-                printf ("FIXME: IC");
-            if (d2->recvvirt_func) {
+	} else if (td->addr && td->len) {
+		/* Legacy Transmit Descriptor */
+		tdaddr = td->addr;
+		tdlen = td->len;
+		tdesc_copytobuf (d2, &tdaddr, &tdlen);
+		if (td->cmd_eop) {
+			if (!td->cmd_ifcs)
+				printf ("FIXME: IFCS=0\n");
+			if (td->cmd_ic)
+				printf ("FIXME: IC=1\n");
+			if (d2->recvvirt_func) {
 				void *packet_data[1];
 				UINT packet_sizes[1];
 				long packet_premap[1];
@@ -963,6 +965,7 @@ guest_is_transmitting (struct desc_shadow *s, struct data2 *d2)
 	struct tdesc *td;
 	u32 i, j, l;
 	u64 k;
+
 	if (d2->d1->disable)	/* PCI config reg is disabled */
 		return;
 	if (!(d2->tctl & 2))	/* !EN: Transmit Enable */
@@ -972,7 +975,7 @@ guest_is_transmitting (struct desc_shadow *s, struct data2 *d2)
 	k = s->base.ll;
 	l = s->len;
 	while (i != j) {
-		td = mapmem_gphys(k + i * 16, sizeof *td, MAPMEM_WRITE);
+		td = mapmem_gphys (k + i * 16, sizeof *td, MAPMEM_WRITE);
 		ASSERT (td);
 		if (process_tdesc (d2, td))
 			break;
@@ -994,13 +997,14 @@ receive_physnic (struct desc_shadow *s, struct data2 *d2, uint off2)
 	long pkt_premap[16];
 	int i = 0, num = 16;
 	struct rdesc *rd;
+
 	write_mydesc (s, d2, off2, false);
 	head = (void *)((u8 *)d2->d1[0].map + off2 + 0x10);
 	tail = (void *)((u8 *)d2->d1[0].map + off2 + 0x18);
 	h = *head;
 	t = *tail;
-	ASSERT (h < NUM_OF_RDESC);
-	ASSERT (t < NUM_OF_RDESC);
+	if (h >= NUM_OF_RDESC || t >= NUM_OF_RDESC)
+		return;
 	for (;;) {
 		nt = t + 1;
 		if (nt >= NUM_OF_RDESC)
@@ -1041,6 +1045,7 @@ receive_physnic (struct desc_shadow *s, struct data2 *d2, uint off2)
 	}
 	*tail = t;
 }
+
 static bool
 handle_desc (uint off1, uint len1, bool wr, union mem *buf, bool recv,
 	     struct data2 *d2, uint off2, struct desc_shadow *s)
@@ -1183,6 +1188,7 @@ mmhandler (void *data, phys_t gphys, bool wr, void *buf, uint len, u32 flags)
 {
 	struct data *d1 = data;
 	struct data2 *d2 = d1->d;
+
 	if (d2->virtio_net && d2->virtio_net_msi && d1 == &d2->d1[0]) {
 		virtio_net_msix (d2->virtio_net, wr, len, gphys - d1->mapaddr,
 				 buf);
@@ -1289,15 +1295,15 @@ pro1000_msi (void *data, int num)
 static void
 pro1000_enable_dma_and_memory (struct pci_device *pci_device)
 {
-	pci_config_address_t addr = pci_device->address;
 	u32 command_orig, command;
 
-	addr.reg_no = 1;
-	command_orig = pci_read_config_data32 (addr, 0);
+	pci_config_read (pci_device, &command_orig, sizeof command_orig,
+			 PCI_CONFIG_COMMAND);
 	command = command_orig | PCI_CONFIG_COMMAND_MEMENABLE |
 		PCI_CONFIG_COMMAND_BUSMASTER;
 	if (command != command_orig)
-		pci_write_config_data32 (addr, 0, command);
+		pci_config_write (pci_device, &command, sizeof command,
+				  PCI_CONFIG_COMMAND);
 }
 
 static void
@@ -1409,11 +1415,11 @@ seize_pro1000 (struct data2 *d2)
 	d2->tdesc[0].initialized = true;
 	{
 		int i;
-		pci_config_address_t addr = d2->pci_device->address;
 
 		for (i = 0; i < PCI_CONFIG_REGS32_NUM; i++) {
-			addr.reg_no = i;
-			d2->regs_at_init[i] = pci_read_config_data32 (addr, 0);
+			pci_config_read (d2->pci_device, &d2->regs_at_init[i],
+					 sizeof d2->regs_at_init[i],
+					 sizeof d2->regs_at_init[i] * i);
 		}
 	}
 }
@@ -1432,8 +1438,9 @@ static void
 pro1000_intr_set (void *param)
 {
 	struct data2 *d2 = param;
+	volatile u32 *ics = (void *)(u8 *)d2->d1[0].map + 0xC8;
 
-	*(u32 *)(void *)((u8 *)d2->d1[0].map + 0xC8) |= 0x1; /* interrupt */
+	*ics = 1 << 7 | 1 << 4;	/* interrupt */
 }
 
 static void
@@ -1470,6 +1477,25 @@ pro1000_msix_enable (void *param)
 	struct data2 *d2 = param;
 
 	pci_msi_enable (d2->virtio_net_msi);
+}
+
+/* Disable I/O space and unreghook I/O space hooks to avoid I/O space
+ * hook collision with virtio-net. */
+static void
+pro1000_disable_io (struct pci_device *pci_device, struct data *d)
+{
+	u32 command_orig, command;
+	int i;
+
+	pci_config_read (pci_device, &command_orig, sizeof command_orig,
+			 PCI_CONFIG_COMMAND);
+	command = command_orig & ~PCI_CONFIG_COMMAND_IOENABLE;
+	if (command != command_orig)
+		pci_config_write (pci_device, &command, sizeof command,
+				  PCI_CONFIG_COMMAND);
+	for (i = 0; i < 6; i++)
+		if (d[i].e && d[i].io)
+			unreghook (&d[i]);
 }
 
 static void 
@@ -1537,6 +1563,7 @@ vpn_pro1000_new (struct pci_device *pci_device, bool option_tty,
 						  pro1000_intr_enable, d2);
 	}
 	if (d2->virtio_net) {
+		pro1000_disable_io (pci_device, d);
 		d2->virtio_net_msi = pci_msi_init (pci_device, pro1000_msi,
 						   d2);
 		if (d2->virtio_net_msi)
@@ -1837,7 +1864,11 @@ static struct pci_driver pro1000_driver = {
 			  "8086:1f41|"
 			  "8086:1f45|"
 			  "8086:15b7|"
- 			  "8086:1570",
+ 			  "8086:1570|"
+ 			  "8086:15d8|"
+ 			  "8086:15d7|"
+ 			  "8086:15e3|"
+ 			  "8086:156f",
 	.new		= pro1000_new,	
 	.config_read	= pro1000_config_read,
 	.config_write	= pro1000_config_write,
@@ -1848,19 +1879,16 @@ vpn_pro1000_init (void)
 {
 	LIST1_HEAD_INIT (d2list);
 	pci_register_driver (&pro1000_driver);
-    mrb_nicload = 1;
 	return;
 }
 
 static void
 resume_pro1000 (void)
 {
-
 	struct data2 *d2;
 	int i;
-	pci_config_address_t addr;
-    printf("test----------------------\n");
-     /* All descriptors should be reinitialized before
+
+	/* All descriptors should be reinitialized before
 	 * receiving/transmitting enabled by the guest OS. */
 	LIST1_FOREACH (d2list, d2) {
 		d2->tdesc[0].initialized = false;
@@ -1868,11 +1896,12 @@ resume_pro1000 (void)
 		d2->rdesc[0].initialized = false;
 		d2->rdesc[1].initialized = false;
 		if (d2->seize) {
-			addr = d2->pci_device->address;
 			for (i = 0; i < PCI_CONFIG_REGS32_NUM; i++) {
-				addr.reg_no = i;
-				pci_write_config_data32 (addr, 0,
-							 d2->regs_at_init[i]);
+				pci_config_write (d2->pci_device,
+						  &d2->regs_at_init[i],
+						  sizeof d2->regs_at_init[i],
+						  sizeof d2->regs_at_init[i]
+						  * i);
 			}
 			seize_pro1000 (d2);
 		}

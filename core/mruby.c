@@ -3,7 +3,8 @@
 #include <core/stdarg.h>
 struct mempool *mrb_mp;
 int
-create_mruby_process(){
+create_mruby_process()
+{
     int ttyin, ttyout,mruby_process;
 
 
@@ -30,7 +31,8 @@ load_mruby_process(int mruby_process)
 }
 
 int
-mruby_funcall(int mruby_process, char *str, int argc, ...){
+mruby_funcall(int mruby_process, char *str, int argc, ...)
+{
     va_list ap;
     va_start(ap, argc);
     struct msgbuf mbuf[argc + 1];
@@ -44,7 +46,8 @@ mruby_funcall(int mruby_process, char *str, int argc, ...){
 }
 
 int
-mruby_set_pointer(int mruby_process, u8 *p, int byte){
+mruby_set_pointer(int mruby_process, u8 *p, int byte)
+{
     struct msgbuf mbuf[2];
     u8 *send_memp;
 
@@ -64,4 +67,3 @@ exit_mruby_process(int mruby_process)
     msgsendint(mruby_process,2);
     return 0;
 }
-

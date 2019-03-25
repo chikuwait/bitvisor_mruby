@@ -31,13 +31,22 @@
 #include <EfiApi.h>
 #include <Protocol/SimpleFileSystem/SimpleFileSystem.h>
 #include <Protocol/LoadedImage/LoadedImage.h>
+#include <vmm_types.h>
+#include <uefi_boot.h>
 
-typedef int EFIAPI entry_func_t (uint32_t loadaddr, uint32_t loadsize,
-				 EFI_SYSTEM_TABLE *systab, EFI_HANDLE image,
-				 EFI_FILE_HANDLE file);
+#define EFI_BLOCK_IO_CRYPTO_PROTOCOL_GUID \
+	{0xa00490ba,0x3f1a,0x4b4c,\
+	 {0xab,0x90,0x4f,0xa9,0x97,0x26,0xa1,0xe8}}
+
+typedef int EFIAPI entry_func_t (EFI_HANDLE image, EFI_SYSTEM_TABLE *systab,
+				 void **boot_exts);
 
 static EFI_GUID LoadedImageProtocol = EFI_LOADED_IMAGE_PROTOCOL_GUID;
 static EFI_GUID FileSystemProtocol = EFI_SIMPLE_FILE_SYSTEM_PROTOCOL_GUID;
+static EFI_GUID BlockIoCryptoProtocol = EFI_BLOCK_IO_CRYPTO_PROTOCOL_GUID;
+
+static EFI_HANDLE saved_image;
+static EFI_SYSTEM_TABLE *saved_systab;
 
 static void
 printhex (EFI_SYSTEM_TABLE *systab, uint64_t val, int width)
@@ -104,6 +113,8 @@ err:
 	buf[i] = L'\0';
 }
 
+#include "discon.h"
+
 EFI_STATUS EFIAPI
 efi_main (EFI_HANDLE image, EFI_SYSTEM_TABLE *systab)
 {
@@ -119,6 +130,8 @@ efi_main (EFI_HANDLE image, EFI_SYSTEM_TABLE *systab)
 	EFI_LOADED_IMAGE_PROTOCOL *loaded_image;
 	EFI_PHYSICAL_ADDRESS paddr = 0x40000000;
 
+	saved_image = image;
+	saved_systab = systab;
 	status = systab->BootServices->
 		HandleProtocol (image, &LoadedImageProtocol, &tmp);
 	if (EFI_ERROR (status)) {
@@ -161,7 +174,24 @@ efi_main (EFI_HANDLE image, EFI_SYSTEM_TABLE *systab)
 	}
 	entry = *(uint32_t *)(paddr + 0x18);
 	entry_func = (entry_func_t *)(paddr + (entry & 0xFFFF));
-	boot_error = entry_func (paddr, readsize, systab, image, file2);
+
+	struct bitvisor_boot boot_ext = {
+		UEFI_BITVISOR_BOOT_UUID,
+		paddr,
+		readsize,
+		file2
+	};
+	struct bitvisor_disconnect_controller boot_ext2 = {
+		UEFI_BITVISOR_DISCONNECT_CONTROLLER_UUID,
+		get_disconnect_controller (systab)
+	};
+	void *boot_exts[] = {
+		&boot_ext,
+		&boot_ext2,
+		NULL
+	};
+
+	boot_error = entry_func (image, systab, boot_exts);
 	if (!boot_error)
 		systab->ConOut->OutputString (systab->ConOut,
 					      L"Boot failed\r\n");

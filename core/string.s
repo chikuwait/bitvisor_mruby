@@ -35,18 +35,21 @@
 	.globl	strcmp
 	.globl	memcmp
 	.globl	strlen
+	.globl	strncmp
 .if longmode
 	.set	memset, memset64
 	.set	memcpy, memcpy64
 	.set	strcmp, strcmp64
 	.set	memcmp, memcmp64
 	.set	strlen, strlen64
+	.set	strncmp, strncmp64
 .else
 	.set	memset, memset32
 	.set	memcpy, memcpy32
 	.set	strcmp, strcmp32
 	.set	memcmp, memcmp32
 	.set	strlen, strlen32
+	.set	strncmp, strncmp32
 .endif
 
 	.code32
@@ -130,9 +133,8 @@ strcmp32:
 	pop	%esi
 	ret
 1:
-	setnc	%al
-	setc	%ah
-	ror	%eax
+	sbb	%eax,%eax
+	xor	$-2,%eax
 	pop	%edi
 	pop	%esi
 	ret
@@ -148,9 +150,8 @@ memcmp32:
 	cld
 	repe	cmpsb
 	je	1f
-	setnc	%al
-	setc	%ah
-	ror	%eax
+	sbb	%eax,%eax
+	xor	$-2,%eax
 1:
 	pop	%edi
 	pop	%esi
@@ -167,6 +168,39 @@ strlen32:
 	lea	1(%ecx),%eax
 	not	%eax
 	mov	%edx,%edi
+	ret
+
+	.align	64
+strncmp32:
+	push	%esi
+	push	%edi
+	mov	12(%esp),%edi
+	mov	16(%esp),%esi
+	mov	20(%esp),%edx
+	xor	%eax,%eax
+	cld
+1:
+	test	%edx,%edx
+	je	2f
+	dec	%edx
+	lodsb
+	scasb
+	jne	1f
+	test	%al,%al
+	jne	1b
+	pop	%edi
+	pop	%esi
+	ret
+1:
+	sbb	%eax,%eax
+	xor	$-2,%eax
+	pop	%edi
+	pop	%esi
+	ret
+2:
+	xor	%eax,%eax
+	pop	%edi
+	pop	%esi
 	ret
 
 	.code64
@@ -249,9 +283,8 @@ strcmp64:
 	jne	1b
 	ret
 1:
-	setnc	%al
-	setc	%ah
-	ror	%eax
+	sbb	%eax,%eax
+	xor	$-2,%eax
 	ret
 
 	.align	64
@@ -261,9 +294,8 @@ memcmp64:
 	cld
 	repe	cmpsb
 	je	1f
-	setnc	%al
-	setc	%ah
-	ror	%eax
+	sbb	%eax,%eax
+	xor	$-2,%eax
 1:
 	ret
 
@@ -275,4 +307,26 @@ strlen64:
 	repne	scasb
 	lea	1(%rcx),%rax
 	not	%rax
+	ret
+
+	.align	64
+strncmp64:
+	xor	%eax,%eax
+	cld
+1:
+	test	%edx,%edx
+	je	2f
+	dec	%edx
+	lodsb
+	scasb
+	jne	1f
+	test	%al,%al
+	jne	1b
+	ret
+1:
+	sbb	%eax,%eax
+	xor	$-2,%eax
+	ret
+2:
+	xor	%eax,%eax
 	ret

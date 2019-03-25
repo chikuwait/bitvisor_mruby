@@ -48,7 +48,23 @@ struct pci_msi {
 	struct pci_device *dev;
 };
 
-static spinlock_t pci_config_lock = SPINLOCK_INITIALIZER;
+struct pci_bridge_callback_list {
+	struct pci_bridge_callback_list *next;
+	struct pci_device *dev;
+	struct pci_bridge_callback *callback;
+};
+
+enum addrlock_mode {
+	ADDR_LOCK,
+	ADDR_RESTORE_UNLOCK,
+	ADDR_UNLOCK,
+};
+
+static void pci_config_pmio_addrlock (enum addrlock_mode mode);
+static void pci_config_pmio_do (bool wr, pci_config_address_t addr,
+				uint offset, uint iosize, union mem *data);
+
+static spinlock_t pci_config_io_lock = SPINLOCK_INITIALIZER;
 static pci_config_address_t current_config_addr;
 
 /********************************************************************************
@@ -61,12 +77,9 @@ struct pci_config_mmio_data *pci_config_mmio_data_head;
 
 void pci_save_config_addr(void)
 {
+	pci_config_pmio_addrlock (ADDR_LOCK);
 	in32(PCI_CONFIG_ADDR_PORT, &current_config_addr.value);
-}
-
-void pci_restore_config_addr(void)
-{
-	out32(PCI_CONFIG_ADDR_PORT, current_config_addr.value);
+	pci_config_pmio_addrlock (ADDR_UNLOCK);
 }
 
 void pci_append_device(struct pci_device *dev)
@@ -79,36 +92,10 @@ void pci_append_device(struct pci_device *dev)
 #define BIT_CLEAR(flag, index)	(flag &= ~(1 << index))
 #define BIT_TEST(flag, index)	(flag &   (1 << index))
 
-static int pci_config_emulate_base_address_mask(struct pci_device *dev, core_io_t io, union mem *data)
-{
-	int index = current_config_addr.reg_no - PCI_CONFIG_ADDRESS_GET_REG_NO(base_address[0]);
-
-	if (! ((0 <= index && index <= 5) || index == 8) )
-		return CORE_IO_RET_DEFAULT;
-
-	if (index == 8) // expansion ROM base address
-		index -= 2;
-
-	if (io.dir == CORE_IO_DIR_OUT) {
-		if (io.size == 4 && (data->dword & 0xFFFFFFF0) == 0xFFFFFFF0) {
-			BIT_SET(dev->in_base_address_mask_emulation, index);
-			return CORE_IO_RET_DONE;
-		} else {
-			BIT_CLEAR(dev->in_base_address_mask_emulation, index);
-		}
-	} else {
-		if (io.size == 4 && BIT_TEST(dev->in_base_address_mask_emulation, index)) {
-			data->dword = dev->base_address_mask[index];
-			return CORE_IO_RET_DONE;
-		}
-	}
-	return CORE_IO_RET_DEFAULT;
-}
-
 static bool
-pci_config_mmio_emulate_base_address_mask (struct pci_device *dev,
-					   unsigned int reg_offset, bool wr,
-					   union mem *data, uint len)
+pci_config_emulate_base_address_mask (struct pci_device *dev,
+				      unsigned int reg_offset, bool wr,
+				      union mem *data, uint len)
 {
 	int index = (reg_offset - 0x10) >> 2;
 
@@ -253,6 +240,8 @@ device_disconnect (struct pci_device *dev)
 			dev->config_space.vendor_id,
 			dev->config_space.device_id);
 		dev->disconnect = 1;
+		if (dev->driver && dev->driver->disconnect)
+			dev->driver->disconnect (dev);
 	}
 	if (!dev->bridge.yes)
 		return;
@@ -262,6 +251,54 @@ device_disconnect (struct pci_device *dev)
 			continue;
 		device_disconnect (dev);
 	}
+}
+
+static void
+pci_handle_bridge_pre_config_write (struct pci_device *bridge, u8 iosize,
+				    u16 offset, union mem *data)
+{
+	struct pci_bridge_callback_list *list;
+	struct pci_bridge_callback *c;
+	int cmd = 0;
+	u8 force_cmd = 0;
+
+	if (offset <= 4 && offset + iosize > 4)
+		cmd = 1;
+	spinlock_lock (&bridge->bridge.callback_lock);
+	for (list = bridge->bridge.callback_list; list; list = list->next) {
+		c = list->callback;
+		if (!c)		/* Never happen */
+			continue;
+		if (c->pre_config_write)
+			c->pre_config_write (list->dev, bridge, iosize,
+					     offset, data);
+		if (cmd && c->force_command)
+			force_cmd |= c->force_command (list->dev, bridge);
+	}
+	spinlock_unlock (&bridge->bridge.callback_lock);
+	if (cmd) {
+		bridge->fake_command_mask = force_cmd;
+		bridge->fake_command_fixed = force_cmd;
+	}
+}
+
+static void
+pci_handle_bridge_post_config_write (struct pci_device *bridge, u8 iosize,
+				     u16 offset, union mem *data)
+{
+	struct pci_bridge_callback_list *list;
+	struct pci_bridge_callback *c;
+
+	spinlock_lock (&bridge->bridge.callback_lock);
+	for (list = bridge->bridge.callback_list; list; list = list->next) {
+		c = list->callback;
+		if (!c)		/* Never happen */
+			continue;
+		if (c->post_config_write)
+			c->post_config_write (list->dev, bridge, iosize,
+					      offset, data);
+	}
+	spinlock_unlock (&bridge->bridge.callback_lock);
 }
 
 static void
@@ -323,105 +360,169 @@ pci_handle_bridge_config_write (struct pci_device *bridge, u8 iosize,
 	bridge->bridge.subordinate_bus_no = new_subordinate_bus_no;
 }
 
-int pci_config_data_handler(core_io_t io, union mem *data, void *arg)
+static void
+pci_config_io_handler (struct pci_config_mmio_data *d, bool wr,
+		       uint bus_no, uint device_no, uint func_no,
+		       uint offset, uint len, void *buf)
 {
-	int ioret = CORE_IO_RET_DEFAULT;
+	enum core_io_ret ioret;
 	struct pci_device *dev;
-	pci_config_address_t caddr, caddr0;
-	u8 offset;
 	int (*func) (struct pci_device *dev, u8 iosize, u16 offset,
 		     union mem *data);
-	static spinlock_t config_data_lock = SPINLOCK_INITIALIZER;
+	pci_config_address_t new_dev_addr;
+	static struct pci_device *last_dev;
+	static uint last_bus_no, last_device_no, last_func_no;
 
-	if (current_config_addr.allow == 0)
-		return CORE_IO_RET_NEXT;	// not configration access
-
-	func = NULL;
-	spinlock_lock (&config_data_lock);
-	spinlock_lock (&pci_config_lock);
-	offset = current_config_addr.reg_no * sizeof(u32) + (io.port - PCI_CONFIG_DATA_PORT);
-	caddr = current_config_addr; caddr.reserved = caddr.reg_no = caddr.type = 0;
-	caddr0 = caddr, caddr0.func_no = 0;
+	spinlock_lock (&pci_config_io_lock);
+	if (last_bus_no == bus_no && last_device_no == device_no &&
+	    last_func_no == func_no && last_dev &&
+	    last_dev->address.bus_no == bus_no &&
+	    last_dev->address.device_no == device_no &&
+	    last_dev->address.func_no == func_no) {
+		/* Fast path */
+		dev = last_dev;
+		goto dev_found;
+	}
 	LIST_FOREACH (pci_device_list, dev) {
-		if (dev->address.value == caddr.value) {
-			if (dev->disconnect &&
-			    pci_reconnect_device (dev, caddr, NULL))
-				goto new_device;
-			if (dev->disconnect) {
-				dev = NULL;
-				goto new_device;
-			}
-			spinlock_unlock (&pci_config_lock);
-			goto found;
+		if (dev->address.bus_no == bus_no &&
+		    dev->address.device_no == device_no &&
+		    dev->address.func_no == func_no) {
+			last_bus_no = bus_no;
+			last_device_no = device_no;
+			last_func_no = func_no;
+			last_dev = dev;
+			goto dev_found;
 		}
-		if (caddr.func_no != 0 && dev->address.value == caddr0.value &&
+		if (func_no != 0 &&
+		    dev->address.bus_no == bus_no &&
+		    dev->address.device_no == device_no &&
+		    dev->address.func_no == 0 &&
 		    dev->config_space.multi_function == 0) {
 			/* The guest OS is trying to access a PCI
 			   configuration header of a single-function
 			   device with function number 1 to 7. The
 			   access will be concealed. */
-			spinlock_unlock (&pci_config_lock);
-			if (io.dir == CORE_IO_DIR_IN)
-				memset (data, 0xFF, io.size);
-			ioret = CORE_IO_RET_DONE;
+			if (!wr)
+				memset (buf, 0xFF, len);
 			goto ret;
 		}
 	}
-	dev = pci_possible_new_device (caddr, NULL);
+	new_dev_addr.value = 0;
+	new_dev_addr.bus_no = bus_no;
+	new_dev_addr.device_no = device_no;
+	new_dev_addr.func_no = func_no;
+	dev = pci_possible_new_device (new_dev_addr, d);
 new_device:
-	pci_restore_config_addr ();
-	spinlock_unlock (&pci_config_lock);
 	if (dev) {
 		struct pci_driver *driver;
 
 		printf ("[%02X:%02X.%X] New PCI device found.\n",
-			caddr.bus_no, caddr.device_no, caddr.func_no);
+			bus_no, device_no, func_no);
 		driver = pci_find_driver_for_device (dev);
 		if (driver) {
 			dev->driver = driver;
 			driver->new (dev);
-			goto found;
 		}
+		goto connected_dev_found;
 	}
+	/* Passthrough accesses to PCI configuration space of
+	 * non-existent devices.  This behavior is apparently required
+	 * for EFI variable access on iMac (Retina 5K, 27-inch, Late
+	 * 2015) and MacBook (Retina, 12-inch, Early 2016). */
+	if (d)
+		pci_readwrite_config_mmio (d, wr, bus_no, device_no, func_no,
+					   offset, len, buf);
+	else
+		pci_readwrite_config_pmio (wr, bus_no, device_no, func_no,
+					   offset, len, buf);
 	goto ret;
-found:
-	if (dev->bridge.yes && io.dir == CORE_IO_DIR_OUT)
-		pci_handle_bridge_config_write (dev, io.size, offset, data);
+dev_found:
+	if (dev->disconnect && pci_reconnect_device (dev, dev->address, d))
+		goto new_device;
+	if (dev->disconnect) {
+		dev = NULL;
+		goto new_device;
+	}
+connected_dev_found:
+	if (dev->bridge.yes && wr)
+		pci_handle_bridge_pre_config_write (dev, len, offset, buf);
+	if (dev->bridge.yes && wr)
+		pci_handle_bridge_config_write (dev, len, offset, buf);
 	if (dev->driver == NULL)
-		goto ret;
+		goto def;
 	if (dev->driver->options.use_base_address_mask_emulation) {
-		ioret = pci_config_emulate_base_address_mask(dev, io, data);
+		if (pci_config_emulate_base_address_mask (dev, offset, wr,
+							  buf, len))
+			goto ret2;
+	}
+	func = wr ? dev->driver->config_write : dev->driver->config_read;
+	if (func) {
+		ioret = func (dev, len, offset, buf);
 		if (ioret == CORE_IO_RET_DONE)
-			goto ret;
+			goto ret2;
 	}
-
-	func = io.dir == CORE_IO_DIR_IN ? dev->driver->config_read : dev->driver->config_write;
+def:
+	if (wr)
+		pci_handle_default_config_write (dev, len, offset, buf);
+	else
+		pci_handle_default_config_read (dev, len, offset, buf);
+ret2:
+	if (dev->bridge.yes && wr)
+		pci_handle_bridge_post_config_write (dev, len, offset, buf);
 ret:
-	spinlock_unlock (&config_data_lock);
-	if (func)
-		ioret = func (dev, io.size, offset, data);
-	if (ioret == CORE_IO_RET_DEFAULT && dev) {
-		if (io.dir == CORE_IO_DIR_OUT)
-			pci_handle_default_config_write (dev, io.size, offset,
-							 data);
-		else
-			pci_handle_default_config_read (dev, io.size, offset,
-							data);
-		ioret = CORE_IO_RET_DONE;
+	spinlock_unlock (&pci_config_io_lock);
+}
+
+int pci_config_data_handler(core_io_t io, union mem *data, void *arg)
+{
+	pci_config_address_t caddr;
+	u8 offset;
+
+	pci_config_pmio_enter ();
+	caddr = current_config_addr;
+	if (!caddr.allow) {
+		/* Not configuration access */
+		pci_config_pmio_do (io.dir != CORE_IO_DIR_IN, caddr,
+				    io.port - PCI_CONFIG_DATA_PORT, io.size,
+				    data);
+		goto leave;
 	}
-	return ioret;
+	offset = caddr.reg_no * sizeof(u32) + (io.port - PCI_CONFIG_DATA_PORT);
+	pci_config_io_handler (NULL, io.dir != CORE_IO_DIR_IN, caddr.bus_no,
+			       caddr.device_no, caddr.func_no, offset, io.size,
+			       data);
+leave:
+	pci_config_pmio_leave ();
+	return CORE_IO_RET_DONE;
 }
 
 int pci_config_addr_handler(core_io_t io, union mem *data, void *arg)
 {
-	if (io.type == CORE_IO_TYPE_OUT32) {
-		spinlock_lock(&pci_config_lock);
+	switch (io.type) {
+	case CORE_IO_TYPE_IN32:
+	case CORE_IO_TYPE_IN16:
+	case CORE_IO_TYPE_IN8:
+		pci_config_pmio_addrlock (ADDR_LOCK);
+		core_io_handle_default (io, data);
+		pci_config_pmio_addrlock (ADDR_UNLOCK);
+		break;
+	case CORE_IO_TYPE_OUT32:
+		pci_config_pmio_addrlock (ADDR_LOCK);
 		current_config_addr.value = data->dword;
-		pci_restore_config_addr();
-		spinlock_unlock(&pci_config_lock);
-		return CORE_IO_RET_DONE;
+		pci_config_pmio_addrlock (ADDR_RESTORE_UNLOCK);
+		break;
+	case CORE_IO_TYPE_OUT16:
+	case CORE_IO_TYPE_OUT8:
+		pci_config_pmio_addrlock (ADDR_LOCK);
+		core_io_handle_default (io, data);
+		in32 (PCI_CONFIG_ADDR_PORT, &current_config_addr.value);
+		/* Update last_addr */
+		pci_config_pmio_addrlock (ADDR_RESTORE_UNLOCK);
+		break;
+	default:
+		panic("pci_config_addr_handler: unknown iotype\n");
 	}
-	return CORE_IO_RET_NEXT;
+	return CORE_IO_RET_DONE;
 }
 
 /* Set port range of a PCI bridge that the pci_device is connected to.
@@ -438,6 +539,10 @@ pci_set_bridge_io (struct pci_device *pci_device)
 	if (!pci_device->address.bus_no)
 		return;		/* No bridges are used for this
 				 * device. */
+	if (pci_device->hotplug)
+		return;		/* Hot-plug devices should be
+				 * configured by the guest operating
+				 * system. */
 	LIST_FOREACH (pci_device_list, dev) {
 		if ((dev->config_space.class_code & 0xFFFF00) == 0x060400) {
 			/* The dev is a PCI bridge. */
@@ -518,46 +623,36 @@ found:
 		bridge->address.bus_no, bridge->address.device_no,
 		bridge->address.func_no, port_list, tmp, tmp);
 	tmp = (tmp << 4) | 1;
-	pci_write_config_mmio (bridge->config_mmio, bridge->address.bus_no,
-			       bridge->address.device_no,
-			       bridge->address.func_no, 0x1C, 1, &tmp);
-	pci_write_config_mmio (bridge->config_mmio, bridge->address.bus_no,
-			       bridge->address.device_no,
-			       bridge->address.func_no, 0x1D, 1, &tmp);
+	pci_config_write (bridge, &tmp, 1, 0x1C);
+	pci_config_write (bridge, &tmp, 1, 0x1D);
 }
 
 void
-pci_set_bridge_fake_command (struct pci_device *pci_device, u8 mask, u8 fixed)
+pci_set_bridge_callback (struct pci_device *pci_device,
+			 struct pci_bridge_callback *bridge_callback)
 {
-	u32 tmp;
-	struct pci_device *dev;
-	u8 bus_no_start, bus_no_end;
+	struct pci_device *bridge;
+	struct pci_bridge_callback_list **list, *p;
 
-	if (!pci_device->address.bus_no)
-		return;		/* No bridges are used for this
-				 * device. */
-	LIST_FOREACH (pci_device_list, dev) {
-		if ((dev->config_space.class_code & 0xFFFF00) != 0x060400)
-			continue;
-		/* The dev is a PCI bridge. */
-		tmp = dev->config_space.base_address[2];
-		bus_no_start = tmp >> 8;
-		bus_no_end = tmp >> 16;
-		if (!(bus_no_start <= pci_device->address.bus_no &&
-		      bus_no_end >= pci_device->address.bus_no))
-			continue;
-		/* The dev is the bridge that the pci_device is
-		 * connected to. */
-		if (!dev->fake_command_mask)
-			dev->fake_command_virtual = dev->config_space.command;
-		dev->fake_command_fixed = (dev->fake_command_fixed & ~mask) |
-			(fixed & mask);
-		dev->fake_command_mask |= mask;
-		printf ("[%02x:%02x.%01x] fake_command"
-			" mask 0x%02X fixed 0x%02X\n",
-			dev->address.bus_no, dev->address.device_no,
-			dev->address.func_no, dev->fake_command_mask,
-			dev->fake_command_fixed);
+	for (bridge = pci_device->parent_bridge; bridge;
+	     bridge = bridge->parent_bridge) {
+		spinlock_lock (&bridge->bridge.callback_lock);
+		for (list = &bridge->bridge.callback_list; (p = *list);
+		     list = &p->next) {
+			if (p->dev == pci_device) {
+				*list = p->next;
+				free (p);
+				break;
+			}
+		}
+		if (bridge_callback) {
+			p = alloc (sizeof *p);
+			p->dev = pci_device;
+			p->callback = bridge_callback;
+			p->next = *list;
+			*list = p;
+		}
+		spinlock_unlock (&bridge->bridge.callback_lock);
 	}
 }
 
@@ -592,54 +687,6 @@ pci_register_intr_callback (int (*callback) (void *data, int num), void *data)
 /* ------------------------------------------------------------------------------
    PCI configuration registers access
  ------------------------------------------------------------------------------ */
-
-#define DEFINE_pci_read_config_data(size)				\
-	u##size pci_read_config_data##size(pci_config_address_t addr, int offset) \
-	{								\
-		u##size data;						\
-		spinlock_lock(&pci_config_lock);			\
-		data = pci_read_config_data##size##_without_lock(addr, offset);	\
-		pci_restore_config_addr();				\
-		spinlock_unlock(&pci_config_lock);			\
-		return data;						\
-	}
-#define DEFINE_pci_write_config_data(size)				\
-	void pci_write_config_data##size(pci_config_address_t addr, int offset, u##size data) \
-	{								\
-		spinlock_lock(&pci_config_lock);			\
-		pci_write_config_data##size##_without_lock(addr, offset, data);	\
-		pci_restore_config_addr();				\
-		spinlock_unlock(&pci_config_lock);			\
-	}
-DEFINE_pci_read_config_data(8)
-DEFINE_pci_read_config_data(16)
-DEFINE_pci_read_config_data(32)
-DEFINE_pci_write_config_data(8)
-DEFINE_pci_write_config_data(16)
-DEFINE_pci_write_config_data(32)
-
-/**
- * @brief	read the current value of the PCI configuration data register (address is set by the guest)
- */
-u32 pci_read_config_data_port()
-{
-	u32 data;
-	spinlock_lock(&pci_config_lock);
-	data = pci_read_config_data_port_without_lock();
-	spinlock_unlock(&pci_config_lock);
-	return data;
-}
-
-/**
- * @brief	write data to the PCI configuration data register (address is set by the guest)
- * @param data	data to be written
- */
-void pci_write_config_data_port(u32 data)
-{
-	spinlock_lock(&pci_config_lock);
-	pci_read_config_data_port_without_lock(data);
-	spinlock_unlock(&pci_config_lock);
-}
 
 void
 pci_readwrite_config_mmio (struct pci_config_mmio_data *p, bool wr,
@@ -683,6 +730,176 @@ pci_write_config_mmio (struct pci_config_mmio_data *p, uint bus_no,
 				   offset, iosize, data);
 }
 
+static void
+pci_config_pmio_do (bool wr, pci_config_address_t addr, uint offset,
+		    uint iosize, union mem *data)
+{
+	static spinlock_t pmio_do_lock = SPINLOCK_INITIALIZER;
+	static u32 last_addr;
+	ioport_t data_port = PCI_CONFIG_DATA_PORT + (offset & 3);
+
+	spinlock_lock (&pmio_do_lock);
+	if (last_addr != addr.value) {
+		out32 (PCI_CONFIG_ADDR_PORT, addr.value);
+		last_addr = addr.value;
+	}
+	switch (iosize) {
+	case 0:
+		break;
+	case 1:
+		if (wr)
+			out8 (data_port, data->byte);
+		else
+			in8 (data_port, &data->byte);
+		break;
+	case 2:
+		if (wr)
+			out16 (data_port, data->word);
+		else
+			in16 (data_port, &data->word);
+		break;
+	case 4:
+		if (wr)
+			out32 (data_port, data->dword);
+		else
+			in32 (data_port, &data->dword);
+		break;
+	}
+	spinlock_unlock (&pmio_do_lock);
+}
+
+static inline void
+pci_config_pmio_addrlock (enum addrlock_mode mode)
+{
+	static spinlock_t pmio_addr_lock = SPINLOCK_INITIALIZER;
+
+	switch (mode) {
+	case ADDR_LOCK:
+		spinlock_lock (&pmio_addr_lock);
+		break;
+	case ADDR_RESTORE_UNLOCK:
+		pci_config_pmio_do (false, current_config_addr, 0, 0, NULL);
+		/* Fall through */
+	case ADDR_UNLOCK:
+		spinlock_unlock (&pmio_addr_lock);
+		break;
+	}
+}
+
+/*
+  >0: addrlock if count is 0, then count++
+  <0: count--, then restore addr and addrunlock if count is 0
+
+  Note:
+    Read current_config_addr while count > 0 or addrlock.
+    Modify current_config_addr while count == 0 and addrlock.
+    Use pci_config_pmio_do() while count > 0 or addrlock.
+    Access addr or data port directly instead of using pci_config_pmio_do()
+    while count == 0 and addrlock, and restore addr after modifying addr.
+*/
+static inline void
+pci_config_pmio_count (int add)
+{
+	static spinlock_t pmio_count_lock = SPINLOCK_INITIALIZER;
+	static int count;
+
+	spinlock_lock (&pmio_count_lock);
+	if (add > 0) {
+		if (!count)
+			pci_config_pmio_addrlock (ADDR_LOCK);
+		count++;
+	} else {
+		count--;
+		if (!count)
+			pci_config_pmio_addrlock (ADDR_RESTORE_UNLOCK);
+	}
+	spinlock_unlock (&pmio_count_lock);
+}
+
+void
+pci_config_pmio_enter (void)
+{
+	pci_config_pmio_count (1);
+}
+
+void
+pci_config_pmio_leave (void)
+{
+	pci_config_pmio_count (-1);
+}
+
+void
+pci_readwrite_config_pmio (bool wr, uint bus_no, uint device_no, uint func_no,
+			   uint offset, uint iosize, void *data)
+{
+	pci_config_address_t addr;
+
+	if (bus_no > 0xFF || device_no > 0x1F || func_no > 0x7 ||
+	    offset > 0xFF || !(iosize == 1 || iosize == 2 || iosize == 4))
+		panic ("pci_readwrite_config_pmio: invalid parameter"
+		       " wr %d [%02X:%02X.%X] offset %02X iosize %X",
+		       wr, bus_no, device_no, func_no, offset, iosize);
+	addr.value = 0;
+	addr.allow = 1;
+	addr.bus_no = bus_no;
+	addr.device_no = device_no;
+	addr.func_no = func_no;
+	addr.reg_no = offset >> 2;
+	pci_config_pmio_enter ();
+	pci_config_pmio_do (wr, addr, offset, iosize, data);
+	pci_config_pmio_leave ();
+}
+
+void
+pci_read_config_pmio (uint bus_no, uint device_no, uint func_no, uint offset,
+		      uint iosize, void *data)
+{
+	pci_readwrite_config_pmio (false, bus_no, device_no, func_no, offset,
+				   iosize, data);
+}
+
+void
+pci_write_config_pmio (uint bus_no, uint device_no, uint func_no, uint offset,
+		       uint iosize, void *data)
+{
+	pci_readwrite_config_pmio (true, bus_no, device_no, func_no, offset,
+				   iosize, data);
+}
+
+void
+pci_config_read (struct pci_device *pci_device, void *data, uint iosize,
+		 uint offset)
+{
+	if (pci_device->config_mmio)
+		pci_read_config_mmio (pci_device->config_mmio,
+				      pci_device->address.bus_no,
+				      pci_device->address.device_no,
+				      pci_device->address.func_no,
+				      offset, iosize, data);
+	else
+		pci_read_config_pmio (pci_device->address.bus_no,
+				      pci_device->address.device_no,
+				      pci_device->address.func_no,
+				      offset, iosize, data);
+}
+
+void
+pci_config_write (struct pci_device *pci_device, void *data, uint iosize,
+		  uint offset)
+{
+	if (pci_device->config_mmio)
+		pci_write_config_mmio (pci_device->config_mmio,
+				       pci_device->address.bus_no,
+				       pci_device->address.device_no,
+				       pci_device->address.func_no,
+				       offset, iosize, data);
+	else
+		pci_write_config_pmio (pci_device->address.bus_no,
+				       pci_device->address.device_no,
+				       pci_device->address.func_no,
+				       offset, iosize, data);
+}
+
 /**
  * @brief		
  */
@@ -691,7 +908,6 @@ pci_handle_default_config_write (struct pci_device *pci_device, u8 iosize,
 				 u16 offset, union mem *data)
 {
 	u32 reg;
-	core_io_t io;
 	union mem data_fake;
 
 	if (pci_device->fake_command_mask &&
@@ -704,32 +920,10 @@ pci_handle_default_config_write (struct pci_device *pci_device, u8 iosize,
 		*p = (*p & ~pci_device->fake_command_mask) |
 			pci_device->fake_command_fixed;
 	}
-	if (pci_device->config_mmio) {
-		pci_write_config_mmio (pci_device->config_mmio,
-				       pci_device->address.bus_no,
-				       pci_device->address.device_no,
-				       pci_device->address.func_no,
-				       offset, iosize, data);
-		if (offset >= 0x40) /* size that pci_read_config_space saves */
-			return;
-		pci_read_config_mmio (pci_device->config_mmio,
-				      pci_device->address.bus_no,
-				      pci_device->address.device_no,
-				      pci_device->address.func_no,
-				      offset & ~3, 4, &reg);
-		pci_device->config_space.regs32[offset >> 2] = reg;
-		return;
-	}
-	if (offset >= 256)
-		panic ("pci_handle_default_config_write: offset %u >= 256",
-		       offset);
-	io.port = PCI_CONFIG_DATA_PORT + (offset & 3);
-	io.dir = CORE_IO_DIR_OUT;
-	io.size = iosize;
-	core_io_handle_default(io, data);
+	pci_config_write (pci_device, data, iosize, offset);
 	if (offset >= 0x40) /* size that pci_read_config_space saves */
 		return;
-	reg = pci_read_config_data_port();
+	pci_config_read (pci_device, &reg, sizeof reg, offset & ~3);
 	pci_device->config_space.regs32[offset >> 2] = reg;
 }
 
@@ -737,24 +931,7 @@ void
 pci_handle_default_config_read (struct pci_device *pci_device, u8 iosize,
 				u16 offset, union mem *data)
 {
-	core_io_t io;
-
-	if (pci_device->config_mmio) {
-		pci_read_config_mmio (pci_device->config_mmio,
-				      pci_device->address.bus_no,
-				      pci_device->address.device_no,
-				      pci_device->address.func_no,
-				      offset, iosize, data);
-		goto ret;
-	}
-	if (offset >= 256)
-		panic ("pci_handle_default_config_read: offset %u >= 256",
-		       offset);
-	io.port = PCI_CONFIG_DATA_PORT + (offset & 3);
-	io.dir = CORE_IO_DIR_IN;
-	io.size = iosize;
-	core_io_handle_default (io, data);
-ret:
+	pci_config_read (pci_device, data, iosize, offset);
 	if (pci_device->fake_command_mask &&
 	    offset <= 4 && offset + iosize > 4) {
 		(&data->byte)[4 - offset] = ((&data->byte)[4 - offset] &
@@ -778,90 +955,10 @@ pci_config_mmio_handler (void *data, phys_t gphys, bool wr, void *buf,
 		} s;
 		phys_t offset;
 	} addr;
-	enum core_io_ret ioret;
-	struct pci_device *dev;
-	int (*func) (struct pci_device *dev, u8 iosize, u16 offset,
-		     union mem *data);
-	pci_config_address_t new_dev_addr;
 
 	addr.offset = gphys - d->base;
-	spinlock_lock (&pci_config_lock);
-	LIST_FOREACH (pci_device_list, dev) {
-		if (dev->address.bus_no == addr.s.bus_no &&
-		    dev->address.device_no == addr.s.dev_no &&
-		    dev->address.func_no == addr.s.func_no) {
-			if (dev->disconnect &&
-			    pci_reconnect_device (dev, dev->address, d))
-				goto new_device;
-			if (dev->disconnect) {
-				dev = NULL;
-				goto new_device;
-			}
-			spinlock_unlock (&pci_config_lock);
-			goto found;
-		}
-		if (addr.s.func_no != 0 &&
-		    dev->address.bus_no == addr.s.bus_no &&
-		    dev->address.device_no == addr.s.dev_no &&
-		    dev->address.func_no == 0 &&
-		    dev->config_space.multi_function == 0) {
-			/* The guest OS is trying to access a PCI
-			   configuration header of a single-function
-			   device with function number 1 to 7. The
-			   access will be concealed. */
-			spinlock_unlock (&pci_config_lock);
-			if (!wr)
-				memset (buf, 0xFF, len);
-			return 1;
-		}
-	}
-	new_dev_addr.value = 0;
-	new_dev_addr.bus_no = addr.s.bus_no;
-	new_dev_addr.device_no = addr.s.dev_no;
-	new_dev_addr.func_no = addr.s.func_no;
-	dev = pci_possible_new_device (new_dev_addr, d);
-new_device:
-	spinlock_unlock (&pci_config_lock);
-	if (dev) {
-		struct pci_driver *driver;
-
-		printf ("[%02X:%02X.%X] New PCI device found.\n",
-			addr.s.bus_no, addr.s.dev_no, addr.s.func_no);
-		driver = pci_find_driver_for_device (dev);
-		if (driver) {
-			dev->driver = driver;
-			driver->new (dev);
-			goto found;
-		}
-	}
-	if (!wr)
-		memset (buf, 0xFF, len);
-	return 1;
-found:
-	if (dev->bridge.yes && wr)
-		pci_handle_bridge_config_write (dev, len, addr.s.reg_offset,
-						buf);
-	if (dev->driver == NULL)
-		goto def;
-	if (dev->driver->options.use_base_address_mask_emulation) {
-		if (pci_config_mmio_emulate_base_address_mask (dev, addr.s.
-							       reg_offset, wr,
-							       buf, len))
-			return 1;
-	}
-	func = wr ? dev->driver->config_write : dev->driver->config_read;
-	if (func) {
-		ioret = func (dev, len, addr.s.reg_offset, buf);
-		if (ioret == CORE_IO_RET_DONE)
-			return 1;
-	}
-def:
-	if (wr)
-		pci_handle_default_config_write (dev, len, addr.s.reg_offset,
-						 buf);
-	else
-		pci_handle_default_config_read (dev, len, addr.s.reg_offset,
-						buf);
+	pci_config_io_handler (d, wr, addr.s.bus_no, addr.s.dev_no,
+			       addr.s.func_no, addr.s.reg_offset, len, buf);
 	return 1;
 }
 
@@ -1025,13 +1122,31 @@ error:
 	panic ("pci_driver_option_get_bool: invalid value %s", option);
 }
 
+u8
+pci_find_cap_offset (struct pci_device *pci_device, u8 cap_id)
+{
+	u32 val;
+	u8 cap;
+
+	/* Read Capabilities Pointer */
+	pci_config_read (pci_device, &cap, sizeof cap, 0x34);
+
+	while (cap >= 0x40) {
+		pci_config_read (pci_device, &val, sizeof val, cap & ~3);
+		if ((val & 0xFF) == cap_id)
+			break;
+		cap = val >> 8; /* Next Capability */
+	}
+
+	return cap < 0x40 ? 0 : cap;
+}
+
 struct pci_msi *
 pci_msi_init (struct pci_device *pci_device,
 	      int (*callback) (void *data, int num), void *data)
 {
 	u32 cmd;
 	u8 cap;
-	u32 capval;
 	int num;
 	struct pci_msi *msi;
 	u32 maddr, mupper;
@@ -1039,30 +1154,12 @@ pci_msi_init (struct pci_device *pci_device,
 
 	if (!pci_device)
 		return NULL;
-	if (!pci_device->config_mmio)
-		return NULL;
-	pci_read_config_mmio (pci_device->config_mmio,
-			      pci_device->address.bus_no,
-			      pci_device->address.device_no,
-			      pci_device->address.func_no,
-			      0x4, sizeof cmd, &cmd);
+	pci_config_read (pci_device, &cmd, sizeof cmd, PCI_CONFIG_COMMAND);
 	if (!(cmd & 0x100000))	/* Capabilities */
 		return NULL;
-	pci_read_config_mmio (pci_device->config_mmio,
-			      pci_device->address.bus_no,
-			      pci_device->address.device_no,
-			      pci_device->address.func_no,
-			      0x34, sizeof cap, &cap); /* CAP */
-	while (cap >= 0x40) {
-		pci_read_config_mmio (pci_device->config_mmio,
-				      pci_device->address.bus_no,
-				      pci_device->address.device_no,
-				      pci_device->address.func_no,
-				      cap, sizeof capval, &capval);
-		if ((capval & 0xFF) == 0x05)
-			goto found;
-		cap = capval >> 8;
-	}
+	cap = pci_find_cap_offset (pci_device, PCI_CAP_MSI);
+	if (cap)
+		goto found;
 	return NULL;
 found:
 	num = exint_pass_intr_alloc (callback, data);
@@ -1074,21 +1171,9 @@ found:
 	maddr = 0xFEEFF000;
 	mupper = 0;
 	mdata = 0x4100 | num;
-	pci_write_config_mmio (pci_device->config_mmio,
-			       pci_device->address.bus_no,
-			       pci_device->address.device_no,
-			       pci_device->address.func_no,
-			       cap + 4, sizeof maddr, &maddr);
-	pci_write_config_mmio (pci_device->config_mmio,
-			       pci_device->address.bus_no,
-			       pci_device->address.device_no,
-			       pci_device->address.func_no,
-			       cap + 8, sizeof mupper, &mupper);
-	pci_write_config_mmio (pci_device->config_mmio,
-			       pci_device->address.bus_no,
-			       pci_device->address.device_no,
-			       pci_device->address.func_no,
-			       cap + 12, sizeof mdata, &mdata);
+	pci_config_write (pci_device, &maddr, sizeof maddr, cap + 4);
+	pci_config_write (pci_device, &mupper, sizeof mupper, cap + 8);
+	pci_config_write (pci_device, &mdata, sizeof mdata, cap + 12);
 	return msi;
 }
 
@@ -1099,11 +1184,7 @@ pci_msi_enable (struct pci_msi *msi)
 	u8 cap = msi->cap;
 	u16 mctl = 1;
 
-	pci_write_config_mmio (pci_device->config_mmio,
-			       pci_device->address.bus_no,
-			       pci_device->address.device_no,
-			       pci_device->address.func_no,
-			       cap + 2, sizeof mctl, &mctl);
+	pci_config_write (pci_device, &mctl, sizeof mctl, cap + 2);
 }
 
 void
@@ -1113,9 +1194,5 @@ pci_msi_disable (struct pci_msi *msi)
 	u8 cap = msi->cap;
 	u16 mctl = 0;
 
-	pci_write_config_mmio (pci_device->config_mmio,
-			       pci_device->address.bus_no,
-			       pci_device->address.device_no,
-			       pci_device->address.func_no,
-			       cap + 2, sizeof mctl, &mctl);
+	pci_config_write (pci_device, &mctl, sizeof mctl, cap + 2);
 }

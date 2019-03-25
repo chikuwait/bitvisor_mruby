@@ -8,15 +8,17 @@ OBJCOPY = objcopy
 SED = sed
 SIZE = size
 MRBC = ./process/mruby_core/bin/mrbc
+
+
 # files
 CONFIG = .config
 dir := $(DIR:/=)/
 dir := $(dir:./%=%)
 outo = output.o
 outa = output.a
+outp = processes.o
 mrba = libmruby.a
 floata = libsoftfloat.a
-outp = processes.o
 target = $(outo)
 defouto = $(dir)$(outo)
 defouta = $(dir)$(outa)
