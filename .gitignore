@@ -27,3 +27,4 @@ boot/login-simple/readdata
 tools/dbgsh
 *.bin
 *.bin.s
+.vscode/*
