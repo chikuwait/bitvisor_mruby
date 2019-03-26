@@ -16,7 +16,7 @@ end
   end
   
   def readEthernetFreame
-    Bitvisor::Util.print"Destination mac address =#{Bitvisor.dumphex(6).join(":")}\n"
+    Bitvisor::Util.print"Destination mac address =#{Bitvisor::Bindata.dumphex(6).join(":")}\n"
   end
   
   def jpeg?
