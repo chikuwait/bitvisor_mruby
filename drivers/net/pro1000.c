@@ -32,6 +32,7 @@
 #include <core/list.h>
 #include <core/mmio.h>
 #include <net/netapi.h>
+#include <core/process.h>
 #include "pci.h"
 #include "virtio_net.h"
 #include <mruby_process.h>
