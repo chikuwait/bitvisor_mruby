@@ -14,7 +14,7 @@
 
 uint8_t mrb_bin_code[];
 u8 *binary_pointer;
-int heap[600000], heaplen = 600000;
+int heap[6000000], heaplen = 6000000;
 
 typedef struct{
     mrb_state *mrb;
