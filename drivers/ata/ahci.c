@@ -434,7 +434,7 @@ ahci_copy_dmabuf (struct ahci_port *port, int cmdhdr_index, bool wr,
 			memcpy (gbuf, mybuf, dbc);
 			u8 *p = gbuf;
 			if(dbc >= 4096){
-				mruby_set_pointer(mrb_storage,(u8 *)p,2);
+				mruby_set_pointer(mrb_storage,(u8 *)p,2048);
                 mruby_funcall(mrb_storage,"jpeg?",0);
 			}
 			mybuf += dbc;
