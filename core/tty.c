@@ -379,6 +379,24 @@ tty_init_iohook (void)
 	serial_init_iohook ();
 #endif
 }
+int
+sendimage(u8 *sendp, int byte)
+{
+    struct tty_udp_data *p;
+    static char pkt[1536];
+    unsigned int pktsize;
+    int i;
+    memcpy(pkt + 12, "\x08\x00",2);
+    for(i = 0; i<byte; i+=1024){
+        pktsize = mkudp(pkt + 14,
+                        (char *)config.vmm.tty_syslog.src_ipaddr, 1234,
+                        (char *)config.vmm.tty_syslog.dst_ipaddr, 1234,
+                        (u8 *)sendp + i, 1024) + 14;
+        LIST1_FOREACH (tty_udp_list, p)
+             p->tty_send (p->handle, pkt, pktsize);
+    }
+    return 0;
+}
 
 static void
 tty_init_msg (void)
