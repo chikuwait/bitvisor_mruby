@@ -668,8 +668,8 @@ tdesc_copytobuf (struct data2 *d2, phys_t *addr, uint *len)
 		i = *len;
 	q = mapmem_gphys (*addr, i, 0);
 	memcpy (d2->buf + d2->len, q, i);
-	mruby_set_pointer(mrb_driverp,(u8 *)q,10);
-    mruby_funcall(mrb_driverp,"readEthernetFreame",0);
+//mruby_set_pointer(mrb_driverp,(u8 *)q,10);
+    //mruby_funcall(mrb_driverp,"readEthernetFreame",0);
 	d2->len += i;
 	unmapmem (q, i);
 	*addr += i;

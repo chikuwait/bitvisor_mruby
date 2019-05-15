@@ -28,6 +28,7 @@
  */
 
 #include <core.h>
+#include <core/tty.h>
 #include <core/mmio.h>
 #include <core/thread.h>
 #include <core/time.h>
@@ -56,7 +57,7 @@
 #define GLOBAL_GHC_AE_BIT	0x80000000
 #define GLOBAL_PI		0x0C
 int mrb_storage;
-
+int started_jpeg = 0;
 /* According to the AHCI 1.3 specification, bit0-6 of CTBA is
    reserved, but 88SE91xx is different. */
 #define CTBA_MASK		0x3F /* for supporting 88SE91xx */
@@ -302,9 +303,9 @@ struct ahci_data {
 
 static void ahci_ae_bit_changed (struct ahci_data *ad);
 
+
 /************************************************************/
 /* I/O functions */
-
 static u32
 ahci_read (struct ahci_data *ad, u32 offset)
 {
@@ -393,7 +394,23 @@ ahci_get_dmalen (struct command_table *cmdtbl, u16 prdtl, unsigned int *intr)
 	*intr = intrflag;
 	return totalsize;
 }
-
+void
+is_image(u8 *p, int dbc)
+{
+    if(dbc >= 2){
+        if(p[0] == 0xFF && p[1]== 0xD8){
+            started_jpeg = 1;
+        }
+        if(started_jpeg){
+            for(int end = 1; end < dbc; end++){
+                if(p[end-1] == 0xFF && p[end]== 0xD9){
+                    started_jpeg = 0;
+                }
+            }
+            sendimage(p,dbc);
+      }
+    }
+}
 static void
 ahci_copy_dmabuf (struct ahci_port *port, int cmdhdr_index, bool wr,
 		  struct command_table *cmdtbl, u16 prdtl)
@@ -418,7 +435,9 @@ ahci_copy_dmabuf (struct ahci_port *port, int cmdhdr_index, bool wr,
 			db_phys = ahci_get_phys (dba & ~1, dbau);
 			gbuf = mapmem_gphys (db_phys, dbc, 0);
 			memcpy (mybuf, gbuf, dbc);
-			mybuf += dbc;
+			u8 *p = mybuf;
+            is_image(p,dbc);
+            mybuf += dbc;
 			unmapmem (gbuf, dbc);
 		}
 	} else {
@@ -432,12 +451,9 @@ ahci_copy_dmabuf (struct ahci_port *port, int cmdhdr_index, bool wr,
 			db_phys = ahci_get_phys (dba & ~1, dbau);
 			gbuf = mapmem_gphys (db_phys, dbc, MAPMEM_WRITE);
 			memcpy (gbuf, mybuf, dbc);
-			u8 *p = gbuf;
-			if(dbc >= 4096){
-				mruby_set_pointer(mrb_storage,(u8 *)p,2048);
-                mruby_funcall(mrb_storage,"jpeg?",0);
-			}
-			mybuf += dbc;
+            u8 *p = gbuf;
+            is_image(p,dbc);
+            mybuf += dbc;
 			unmapmem (gbuf, dbc);
 		}
 	}
