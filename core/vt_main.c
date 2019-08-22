@@ -62,7 +62,7 @@
 
 #define EPT_VIOLATION_EXIT_QUAL_WRITE_BIT 0x2
 #define STAT_EXIT_REASON_MAX EXIT_REASON_XSETBV
-
+static inline void current_thread_info(void);
 enum vt__status {
 	VT__VMENTRY_SUCCESS,
 	VT__VMENTRY_FAILED,
@@ -1037,13 +1037,533 @@ do_vmresume (void)
 	if (is_vm_allowed ())
 		vt_emul_vmresume ();
 }
+#define THREAD_SIZE_ORDER 1
+#define PAGE_SHIFT 12
+#define PAGE_SIZE (1UL << PAGE_SHIFT)
+#define THREAD_SIZE (PAGE_SIZE << THREAD_SIZE_ORDER)
+typedef unsigned long __attribute__((nocast))cputime_t;
+#define TASK_COMM_LEN 16
+
+# define __user
+
+typedef struct {
+	int counter;
+} atomic_t;
+struct list_head {
+	struct list_head *next, *prev;
+};
+struct llist_node {
+	struct llist_node *next;
+};
+struct load_weight {
+	unsigned long weight, inv_weight;
+};
+struct rb_node {
+	unsigned long  __rb_parent_color;
+	struct rb_node *rb_right;
+	struct rb_node *rb_left;
+} __attribute__((aligned(sizeof(long))));
+struct sched_statistics {
+	u64			wait_start;
+	u64			wait_max;
+	u64			wait_count;
+	u64			wait_sum;
+	u64			iowait_count;
+	u64			iowait_sum;
+
+	u64			sleep_start;
+	u64			sleep_max;
+	long			sum_sleep_runtime;
+
+	u64			block_start;
+	u64			block_max;
+	u64			exec_max;
+	u64			slice_max;
+
+	u64			nr_migrations_cold;
+	u64			nr_failed_migrations_affine;
+	u64			nr_failed_migrations_running;
+	u64			nr_failed_migrations_hot;
+	u64			nr_forced_migrations;
+
+	u64			nr_wakeups;
+	u64			nr_wakeups_sync;
+	u64			nr_wakeups_migrate;
+	u64			nr_wakeups_local;
+	u64			nr_wakeups_remote;
+	u64			nr_wakeups_affine;
+	u64			nr_wakeups_affine_attempts;
+	u64			nr_wakeups_passive;
+	u64			nr_wakeups_idle;
+};
+struct sched_avg {
+	/*
+	 * These sums represent an infinite geometric series and so are bound
+	 * above by 1024/(1-y).  Thus we only need a u32 to store them for for all
+	 * choices of y < 1-2^(-32)*1024.
+	 */
+	u32 runnable_avg_sum, runnable_avg_period;
+	u64 last_runnable_update;
+	long decay_count;
+	unsigned long load_avg_contrib;
+};
+struct sched_entity {
+	struct load_weight	load;		/* for load-balancing */
+	struct rb_node		run_node;
+	struct list_head	group_node;
+	unsigned int		on_rq;
+
+	u64			exec_start;
+	u64			sum_exec_runtime;
+	u64			vruntime;
+	u64			prev_sum_exec_runtime;
+
+	u64			nr_migrations;
+
+	struct sched_statistics statistics;
+
+	struct sched_entity	*parent;
+	/* rq on which this entity is (to be) queued: */
+	struct cfs_rq		*cfs_rq;
+	/* rq "owned" by this entity/group: */
+	struct cfs_rq		*my_q;
+/*
+ * Load-tracking only depends on SMP, FAIR_GROUP_SCHED dependency below may be
+ * removed when useful for applications beyond shares distribution (e.g.
+ * load-balance).
+ */
+	/* Per-entity load-tracking */
+	struct sched_avg	avg;
+};
+struct sched_rt_entity {
+	struct list_head run_list;
+	unsigned long timeout;
+	unsigned long watchdog_stamp;
+	unsigned int time_slice;
+
+	struct sched_rt_entity *back;
+	struct sched_rt_entity	*parent;
+	/* rq on which this entity is (to be) queued: */
+	struct rt_rq		*rt_rq;
+	/* rq "owned" by this entity/group: */
+	struct rt_rq		*my_q;
+};
+struct hlist_node {
+	struct hlist_node *next, **pprev;
+};
+struct hlist_head {
+	struct hlist_node *first;
+};
+typedef struct seqcount {
+	unsigned sequence;
+} seqcount_t;
+typedef struct {
+	struct seqcount seqcount;
+	spinlock_t lock;
+} seqlock_t;
+struct timespec {
+        long       ts_sec;
+        long       ts_nsec;
+};
+struct task_cputime {
+	cputime_t utime;
+	cputime_t stime;
+	unsigned long long sum_exec_runtime;
+};
+enum pid_type
+{
+	PIDTYPE_PID,
+	PIDTYPE_PGID,
+	PIDTYPE_SID,
+	PIDTYPE_MAX
+};
+#define NR_CPUS 5120
+#define DIV_ROUND_UP(x, y)  (((x) + (y) - 1) / (y))
+#define BITS_PER_BYTE		8
+#define BITS_TO_LONGS(nr)	DIV_ROUND_UP(nr, BITS_PER_BYTE * sizeof(long))
+#define DECLARE_BITMAP(name,bits) \
+	unsigned long name[BITS_TO_LONGS(bits)]
+typedef struct cpumask { DECLARE_BITMAP(bits, NR_CPUS); } cpumask_t;
+typedef int	 pid_t;
+# define __rcu		__attribute__((noderef, address_space(4)))
+
+struct sched_info {
+	/* cumulative counters */
+	unsigned long pcount;	      /* # of times run on this cpu */
+	unsigned long long run_delay; /* time spent waiting on a runqueue */
+
+	/* timestamps */
+	unsigned long long last_arrival,/* when we last ran on a cpu */
+			   last_queued;	/* when we were last queued to run */
+};
+struct plist_node {
+	int			prio;
+	struct list_head	prio_list;
+	struct list_head	node_list;
+};
+struct pid_link
+{
+	struct hlist_node node;
+	struct pid *pid;
+};
+struct task_struct {
+	volatile long state;	/* -1 unrunnable, 0 runnable, >0 stopped */
+	void *stack;
+	atomic_t usage;
+	unsigned int flags;	/* per process flags, defined below */
+	unsigned int ptrace;
+
+	struct llist_node wake_entry;
+	int on_cpu;
+	int on_rq;
+
+	int prio, static_prio, normal_prio;
+	unsigned int rt_priority;
+	const struct sched_class *sched_class;
+	struct sched_entity se;
+	struct sched_rt_entity rt;
+	struct task_group *sched_task_group;
+
+	/* list of struct preempt_notifier: */
+	struct hlist_head preempt_notifiers;
+
+	/*
+	 * fpu_counter contains the number of consecutive context switches
+	 * that the FPU is used. If this is over a threshold, the lazy fpu
+	 * saving becomes unlazy to save the trap. This is an unsigned char
+	 * so that after 256 times the counter wraps and the behavior turns
+	 * lazy again; this to deal with bursty apps that only use FPU for
+	 * a short time
+	 */
+	unsigned char fpu_counter;
+	unsigned int btrace_seq;
+
+	unsigned int policy;
+	int nr_cpus_allowed;
+	cpumask_t cpus_allowed;
+
+#ifdef CONFIG_RCU_BOOST
+	struct rt_mutex *rcu_boost_mutex;
+#endif /* #ifdef CONFIG_RCU_BOOST */
+
+	struct sched_info sched_info;
+	struct list_head tasks;
+	struct plist_node pushable_tasks;
+
+	struct mm_struct *mm, *active_mm;
+/* task state */
+	int exit_state;
+	int exit_code, exit_signal;
+	int pdeath_signal;  /*  The signal sent when the parent dies  */
+	unsigned int jobctl;	/* JOBCTL_*, siglock protected */
+
+	/* Used for emulating ABI behavior of previous Linux versions */
+	unsigned int personality;
+
+	unsigned did_exec:1;
+	unsigned in_execve:1;	/* Tell the LSMs that the process is doing an
+				 * execve */
+	unsigned in_iowait:1;
+
+	/* task may not gain privileges */
+	unsigned no_new_privs:1;
+
+	/* Revert to default priority/policy when forking */
+	unsigned sched_reset_on_fork:1;
+	unsigned sched_contributes_to_load:1;
+
+	pid_t pid;
+	pid_t tgid;
+
+	/* Canary value for the -fstack-protector gcc feature */
+	unsigned long stack_canary;
+	/*
+	 * pointers to (original) parent process, youngest child, younger sibling,
+	 * older sibling, respectively.  (p->father can be replaced with
+	 * p->real_parent->pid)
+	 */
+	struct task_struct __rcu *real_parent; /* real parent process */
+	struct task_struct __rcu *parent; /* recipient of SIGCHLD, wait4() reports */
+	/*
+	 * children/sibling forms the list of my natural children
+	 */
+	struct list_head children;	/* list of my children */
+	struct list_head sibling;	/* linkage in my parent's children list */
+	struct task_struct *group_leader;	/* threadgroup leader */
+
+	/*
+	 * ptraced is the list of tasks this task is using ptrace on.
+	 * This includes both natural children and PTRACE_ATTACH targets.
+	 * p->ptrace_entry is p's link on the p->parent->ptraced list.
+	 */
+	struct list_head ptraced;
+	struct list_head ptrace_entry;
+
+	/* PID/PID hash table linkage. */
+	struct pid_link pids[PIDTYPE_MAX];
+	struct list_head thread_group;
+	struct list_head thread_node;
+
+	struct completion *vfork_done;		/* for vfork() */
+	int __user *set_child_tid;		/* CLONE_CHILD_SETTID */
+	int __user *clear_child_tid;		/* CLONE_CHILD_CLEARTID */
+
+	cputime_t utime, stime, utimescaled, stimescaled;
+	cputime_t gtime;
+
+	seqlock_t vtime_seqlock;
+	unsigned long long vtime_snap;
+	enum {
+		VTIME_SLEEPING = 0,
+		VTIME_USER,
+		VTIME_SYS,
+	} vtime_snap_whence;
+
+	unsigned long nvcsw, nivcsw; /* context switch counts */
+	struct timespec start_time; 		/* monotonic time */
+	struct timespec real_start_time;	/* boot based time */
+/* mm fault and swap info: this can arguably be seen as either mm-specific or thread-specific */
+	unsigned long min_flt, maj_flt;
+
+	struct task_cputime cputime_expires;
+	struct list_head cpu_timers[3];
+
+/* process credentials */
+	const struct cred __rcu *real_cred; /* objective and real subjective task
+					 * credentials (COW) */
+	const struct cred __rcu *cred;	/* effective (overridable) subjective task
+					 * credentials (COW) */
+	char comm[TASK_COMM_LEN]; /* executable name excluding path
+				     - access with [gs]et_task_comm (which lock
+				       it with task_lock())
+				     - initialized normally by setup_new_exec */
+
+
+/*
+	int link_count, total_link_count;
+	struct sysv_sem sysvsem;
+		unsigned long last_switch_count;
+	struct thread_struct thread;
+	struct fs_struct *fs;
+	struct files_struct *files;
+	struct nsproxy *nsproxy;
+	struct signal_struct *signal;
+	struct sighand_struct *sighand;
+
+	sigset_t blocked, real_blocked;
+	sigset_t saved_sigmask;	
+	struct sigpending pending;
+
+	unsigned long sas_ss_sp;
+	size_t sas_ss_size;
+	int (*notifier)(void *priv);
+	void *notifier_data;
+	sigset_t *notifier_mask;
+	struct callback_head *task_works;
+
+	struct audit_context *audit_context;
+
+	kuid_t loginuid;
+	unsigned int sessionid;
+	struct seccomp seccomp;
+
+   	u32 parent_exec_id;
+   	u32 self_exec_id;
+
+	spinlock_t alloc_lock;
+
+	raw_spinlock_t pi_lock;
+
+	struct plist_head pi_waiters;
+	struct rt_mutex_waiter *pi_blocked_on;
+
+	unsigned int irq_events;
+	unsigned long hardirq_enable_ip;
+	unsigned long hardirq_disable_ip;
+	unsigned int hardirq_enable_event;
+	unsigned int hardirq_disable_event;
+	int hardirqs_enabled;
+	int hardirq_context;
+	unsigned long softirq_disable_ip;
+	unsigned long softirq_enable_ip;
+	unsigned int softirq_disable_event;
+	unsigned int softirq_enable_event;
+	int softirqs_enabled;
+	int softirq_context;
+
+# define MAX_LOCK_DEPTH 48UL
+	u64 curr_chain_key;
+	int lockdep_depth;
+	unsigned int lockdep_recursion;
+	struct held_lock held_locks[MAX_LOCK_DEPTH];
+	gfp_t lockdep_reclaim_gfp;
+
+	void *journal_info;
+
+	struct bio_list *bio_list;
+
+	struct blk_plug *plug;
+
+	struct reclaim_state *reclaim_state;
+
+	struct backing_dev_info *backing_dev_info;
+
+	struct io_context *io_context;
+
+	unsigned long ptrace_message;
+	siginfo_t *last_siginfo; 
+	struct task_io_accounting ioac;
+
+	u64 acct_rss_mem1;
+	u64 acct_vm_mem1;	
+	cputime_t acct_timexpd;	
+
+	nodemask_t mems_allowed;	
+	seqcount_t mems_allowed_seq;	
+	int cpuset_mem_spread_rotor;
+	int cpuset_slab_spread_rotor;
+
+
+	struct css_set __rcu *cgroups;
+	struct list_head cg_list;
+
+	struct robust_list_head __user *robust_list;
+
+	struct compat_robust_list_head __user *compat_robust_list;
+	struct list_head pi_state_list;
+	struct futex_pi_state *pi_state_cache;
+
+	struct perf_event_context *perf_event_ctxp[perf_nr_task_contexts];
+	struct mutex perf_event_mutex;
+	struct list_head perf_event_list;
+
+	struct mempolicy *mempolicy;
+	short il_next;
+	short pref_node_fork;
+
+	int numa_scan_seq;
+	int numa_migrate_seq;
+	unsigned int numa_scan_period;
+	u64 node_stamp;		
+	struct callback_head numa_work;
+
+	struct rcu_head rcu;
+
+	struct pipe_inode_info *splice_pipe;
+
+	struct page_frag task_frag;
+
+	struct task_delay_info *delays;
+
+	int nr_dirtied;
+	int nr_dirtied_pause;
+	unsigned long dirty_paused_when;
+
+
+	unsigned long timer_slack_ns;
+	unsigned long default_timer_slack_ns;
+
+	int curr_ret_stack;
+	struct ftrace_ret_stack	*ret_stack;
+	unsigned long long ftrace_timestamp;
+
+	atomic_t trace_overrun;
+	atomic_t tracing_graph_pause;
+
+	unsigned long trace;
+	unsigned long trace_recursion;
+
+
+	struct memcg_batch_info {
+		int do_batch;	
+		struct mem_cgroup *memcg; 
+		unsigned long nr_pages;	
+		unsigned long memsw_nr_pages;
+	} memcg_batch;
+	unsigned int memcg_kmem_skip_account;
+	struct memcg_oom_info {
+		struct mem_cgroup *memcg;
+		gfp_t gfp_mask;
+		int order;
+		unsigned int may_oom:1;
+	} memcg_oom;
+
+	atomic_t ptrace_bp_refcnt;
+
+	struct uprobe_task *utask;
+	*/
+
+};
+
+
+typedef struct{
+	unsigned long seg;
+}mm_segment_t;
+
+struct restart_block {
+	long (*fn)(struct restart_block *);
+	union {
+		/* For futex_wait and futex_wait_requeue_pi */
+		struct {
+			u32 *uaddr;
+			u32 val;
+			u32 flags;
+			u32 bitset;
+			u64 time;
+			u32 *uaddr2;
+		} futex;
+		/* For nanosleep */
+		struct {
+			int clockid;
+			struct timespec __user *rmtp;
+			struct compat_timespec __user *compat_rmtp;
+			u64 expires;
+		} nanosleep;
+		/* For poll */
+		struct {
+			struct pollfd __user *ufds;
+			int nfds;
+			int has_timeout;
+			unsigned long tv_sec;
+			unsigned long tv_nsec;
+		} poll;
+	};
+};
+
+
+struct thread_info {
+	struct task_struct	*task;		/* main task structure */
+	struct exec_domain	*exec_domain;	/* execution domain */
+	u32			flags;		/* low level flags */
+	u32			status;		/* thread synchronous flags */
+	u32			cpu;		/* current CPU */
+	int			preempt_count;	/* 0 => preemptable,
+						   <0 => BUG */
+	mm_segment_t		addr_limit;
+	struct restart_block    restart_block;
+	void __user		*sysenter_return;
+	unsigned int		sig_on_uaccess_error:1;
+	unsigned int		uaccess_err:1;	/* uaccess failed */
+};
+
+//register unsigned long current_stack_pointer asm("esp") __attribute__((__used__));
+static inline void current_thread_info(void)
+{
+	struct thread_info *ti;
+	ulong esp;
+	asm_vmread (VMCS_GUEST_IA32_SYSENTER_ESP, &esp);
+	ti =(struct thread_info*)(esp & ~(THREAD_SIZE - 1));
+	struct task_struct *task = ti->task;
+	printf("flags = %d\n",ti->flags);
+//	  printf("process name = %d\n",task->comm);
+}
 
 static void
 vt__exit_reason (void)
 {
 	ulong exit_reason;
-
 	asm_vmread (VMCS_EXIT_REASON, &exit_reason);
+	current_thread_info();
 	if (exit_reason & EXIT_REASON_VMENTRY_FAILURE_BIT)
 		panic ("Fatal error: VM Entry failure.");
 	switch (exit_reason & EXIT_REASON_MASK) {

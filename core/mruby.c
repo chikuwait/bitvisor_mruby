@@ -34,10 +34,11 @@ int
 mruby_funcall(int mruby_process, char *str, int argc, ...)
 {
     va_list ap;
+    int i;
     va_start(ap, argc);
     struct msgbuf mbuf[argc + 1];
     setmsgbuf(&mbuf[0], str, sizeof str, 0);
-    for(int i = 0; i < argc ; i++){
+    for(i = 0; i < argc ; i++){
         char *arg = va_arg(ap, char *);
         setmsgbuf(&mbuf[i + 1], arg, sizeof arg, i + 1);
     }
