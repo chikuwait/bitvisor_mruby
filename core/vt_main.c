@@ -1040,7 +1040,8 @@ do_vmresume (void)
 #define THREAD_SIZE_ORDER 1
 #define PAGE_SHIFT 12
 #define PAGE_SIZE (1UL << PAGE_SHIFT)
-#define THREAD_SIZE (PAGE_SIZE << THREAD_SIZE_ORDER)
+//#define THREAD_SIZE (PAGE_SIZE << THREAD_SIZE_ORDER)
+#define THREAD_SIZE (PAGE_SIZE << 2)
 typedef unsigned long __attribute__((nocast))cputime_t;
 #define TASK_COMM_LEN 16
 
@@ -1550,12 +1551,19 @@ struct thread_info {
 static inline void current_thread_info(void)
 {
 	struct thread_info *ti;
-	ulong esp;
-	asm_vmread (VMCS_GUEST_IA32_SYSENTER_ESP, &esp);
-	ti =(struct thread_info*)(esp & ~(THREAD_SIZE - 1));
-	struct task_struct *task = ti->task;
-	printf("flags = %d\n",ti->flags);
-//	  printf("process name = %d\n",task->comm);
+	ulong rsp;
+	asm_vmread (VMCS_GUEST_RSP, &rsp);
+	ti = (struct thread_info*)(rsp & ~(8192-1));
+
+	if(ti >= 0xffff880000000000){
+		//ti = (struct thread_info*)(0xffff880000000000);
+	//	struct task_struct *task = ti->task;
+		printf("thread_info = %p\n",ti);
+		//printf("current cpu = %d\n",ti->cpu);
+	//	printf("task_struct = %p\n",task);
+	//	printf("process id = %d\n",task->pid);
+	//	printf("process name = %s\n",task->comm);
+   }
 }
 
 static void
@@ -1563,7 +1571,6 @@ vt__exit_reason (void)
 {
 	ulong exit_reason;
 	asm_vmread (VMCS_EXIT_REASON, &exit_reason);
-	current_thread_info();
 	if (exit_reason & EXIT_REASON_VMENTRY_FAILURE_BIT)
 		panic ("Fatal error: VM Entry failure.");
 	switch (exit_reason & EXIT_REASON_MASK) {
@@ -1843,6 +1850,7 @@ vt_mainloop (void)
 			vt_paging_tlbflush ();
 			if (!nmi) {
 				vt__event_delivery_check ();
+				current_thread_info();
 				vt__exit_reason ();
 			}
 		}
