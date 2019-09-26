@@ -49,6 +49,7 @@
 #include "thread.h"
 #include "vmmcall.h"
 #include "vmmcall_status.h"
+#include "mm.h"
 #include "vt.h"
 #include "vt_addip.h"
 #include "vt_exitreason.h"
@@ -62,7 +63,6 @@
 
 #define EPT_VIOLATION_EXIT_QUAL_WRITE_BIT 0x2
 #define STAT_EXIT_REASON_MAX EXIT_REASON_XSETBV
-static inline void current_thread_info(void);
 enum vt__status {
 	VT__VMENTRY_SUCCESS,
 	VT__VMENTRY_FAILED,
@@ -77,6 +77,8 @@ static u32 stat_pfcnt = 0;
 static u32 stat_iocnt = 0;
 static u32 stat_hltcnt = 0;
 static u32 stat_exit_reason[STAT_EXIT_REASON_MAX + 1];
+
+static inline void current_thread_info(void);
 
 static void
 do_mov_cr (void)
@@ -1225,17 +1227,7 @@ struct task_struct {
 	struct sched_rt_entity rt;
 	struct task_group *sched_task_group;
 
-	/* list of struct preempt_notifier: */
 	struct hlist_head preempt_notifiers;
-
-	/*
-	 * fpu_counter contains the number of consecutive context switches
-	 * that the FPU is used. If this is over a threshold, the lazy fpu
-	 * saving becomes unlazy to save the trap. This is an unsigned char
-	 * so that after 256 times the counter wraps and the behavior turns
-	 * lazy again; this to deal with bursty apps that only use FPU for
-	 * a short time
-	 */
 	unsigned char fpu_counter;
 	unsigned int btrace_seq;
 
@@ -1537,7 +1529,7 @@ struct thread_info {
 	struct exec_domain	*exec_domain;	/* execution domain */
 	u32			flags;		/* low level flags */
 	u32			status;		/* thread synchronous flags */
-	u32			cpu;		/* current CPU */
+	u32			cpu;		/* cu                           rrent CPU */
 	int			preempt_count;	/* 0 => preemptable,
 						   <0 => BUG */
 	mm_segment_t		addr_limit;
@@ -1546,26 +1538,38 @@ struct thread_info {
 	unsigned int		sig_on_uaccess_error:1;
 	unsigned int		uaccess_err:1;	/* uaccess failed */
 };
-
-//register unsigned long current_stack_pointer asm("esp") __attribute__((__used__));
-static inline void current_thread_info(void)
+#define _AC(X,Y)	(X##Y)
+#define __START_KERNEL_map _AC(0xffffffff80000000, UL)
+#define __PAGE_OFFSET  _AC(0xffff880000000000, UL)
+#define PAGE_OFFSET ((unsigned long)__PAGE_OFFSET)
+typedef unsigned long int uintptr_t;
+unsigned long virt_to_phys(unsigned long x)
 {
-	struct thread_info *ti;
-	ulong rsp;
-	asm_vmread (VMCS_GUEST_RSP, &rsp);
-	ti = (struct thread_info*)(rsp & ~(8192-1));
-
-	if(ti >= 0xffff880000000000){
-		//ti = (struct thread_info*)(0xffff880000000000);
-	//	struct task_struct *task = ti->task;
-		printf("thread_info = %p\n",ti);
-		//printf("current cpu = %d\n",ti->cpu);
-	//	printf("task_struct = %p\n",task);
-	//	printf("process id = %d\n",task->pid);
-	//	printf("process name = %s\n",task->comm);
-   }
+	unsigned long y = x - __START_KERNEL_map;
+	x = y + (__START_KERNEL_map - PAGE_OFFSET);
+	return x;
 }
+int is_kernel_stack(ulong addr)
+{
+	return (0xffff880000000000 <= addr && addr <= 0xffffc7ffffffffff);
+}
+void current_thread_info(void)
+{
+	ulong cpu_phys,virt_addr;
+	u32 *cpu_num;
+	void *info;
+	void *cpu;
 
+	asm_vmread(VMCS_GUEST_RSP, &virt_addr);
+	if(is_kernel_stack(virt_addr)){
+		info = (void *)(virt_addr & ~((4096<<2)-1));
+		cpu =  info + sizeof(void *)*2 + sizeof(int)*2;
+		cpu_phys = virt_to_phys((uintptr_t)cpu);
+		cpu_num = mapmem_gphys(cpu_phys, sizeof(u32), 0);
+		printf("cpu = %ld\n", *cpu_num);
+		unmapmem(cpu_num,sizeof(u32));
+    }
+}
 static void
 vt__exit_reason (void)
 {
