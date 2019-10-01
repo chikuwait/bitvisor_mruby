@@ -1485,7 +1485,6 @@ struct task_struct {
 
 	struct uprobe_task *utask;
 	*/
-
 };
 
 
@@ -1555,19 +1554,33 @@ int is_kernel_stack(ulong addr)
 }
 void current_thread_info(void)
 {
-	ulong cpu_phys,virt_addr;
-	u32 *cpu_num;
-	void *info;
-	void *cpu;
+	void *thread_ptr;
+	ulong rsp,thread_phys,task_phys;
+	struct thread_info *thread_info;
+	struct task_struct *task_struct;
 
-	asm_vmread(VMCS_GUEST_RSP, &virt_addr);
-	if(is_kernel_stack(virt_addr)){
-		info = (void *)(virt_addr & ~((4096<<2)-1));
-		cpu =  info + sizeof(void *)*2 + sizeof(int)*2;
-		cpu_phys = virt_to_phys((uintptr_t)cpu);
-		cpu_num = mapmem_gphys(cpu_phys, sizeof(u32), 0);
-		printf("cpu = %ld\n", *cpu_num);
-		unmapmem(cpu_num,sizeof(u32));
+	asm_vmread(VMCS_GUEST_RSP, &rsp);
+	if(is_kernel_stack(rsp)){
+		thread_ptr = (void *)(rsp & ~((4096<<2)-1));
+		thread_phys = virt_to_phys((uintptr_t)thread_ptr);
+		thread_info = mapmem_gphys(thread_phys, sizeof(struct thread_info), 0);
+
+		if(thread_info != NULL){
+			task_phys = virt_to_phys((uintptr_t)(thread_info->task));
+			task_struct = mapmem_gphys(task_phys, sizeof(long), 0);
+			
+			if(task_struct != NULL){
+				printf("thread_p = %0x\n", thread_info);
+				printf("thread = %lx\n", (uintptr_t)thread_ptr);
+				printf("task_p = %0x\n", task_struct);
+				printf("task = %lx\n", (uintptr_t)thread_info->task);
+				printf("cpu = %ld\n", thread_info->cpu);
+				printf("cpu = %ld\n", thread_info->cpu);
+				printf("state = %ld\n", task_struct->state);
+			}
+			unmapmem(task_struct,sizeof(long));
+		}
+		unmapmem(thread_info,sizeof(struct thread_info));
     }
 }
 static void
